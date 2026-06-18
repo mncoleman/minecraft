@@ -1,0 +1,96 @@
+# Eaglercraft (browser Minecraft) — private server for minecraft.mncoleman.com
+#
+# CRASH-ISOLATION CONTRACT (this is the whole point of running it in Docker):
+#   - mem_limit + cpus are HARD caps. If the JVM leaks or a mob farm melts the
+#     CPU, Docker contains it. The 21 other containers (Supabase, n8n, artifacts,
+#     levoair...) never feel it.
+#   - restart: unless-stopped → it self-heals on crash, but a crash loop can't
+#     starve the box because the caps still apply.
+#   - The game/Eagler listener is published ONLY to 127.0.0.1. The public
+#     internet cannot reach it directly; only Caddy (on the host) can, over the
+#     wss:// reverse proxy. Oracle security-list + ufw stay at 22/80/443.
+#
+# Backend = Paper 1.12.2. The Via* plugin chain downgrades it so 1.8 Eaglercraft
+# clients connect. EaglerXServer adds the WebSocket (browser) protocol on top and
+# protocol-detects WS vs raw TCP on the same in-container port (25565).
+
+services:
+  minecraft:
+    # Java 17: EaglercraftXServer is Java 17 bytecode (major 61) and shares this
+    # JVM with Paper 1.12.2. The official template's Paper 1.12.2 jar runs on 17.
+    # ⚠ FIRST-BOOT CHECK: confirm Paper actually starts on 17 (see DEPLOY.md).
+    image: itzg/minecraft-server:java17
+    container_name: mc-eagler
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+
+    # Secrets (MC_JWT_SECRET — shared with mc-auth; read by the auth plugin via
+    # System.getenv). Copy .env.example to .env and fill in.
+    env_file:
+      - .env
+
+    # --- HARD resource caps (crash isolation) -------------------------------
+    mem_limit: 5g              # heap is 3G; 5G cap gives off-heap/spike headroom
+    memswap_limit: 5g          # no swap spillover — OOM the container, not the box
+    cpus: 2.0                   # box has 4 cores; leave 2 for everything else
+    # ------------------------------------------------------------------------
+
+    ports:
+      # host:container — bound to LOOPBACK so it is NOT publicly reachable.
+      # Caddy reverse-proxies wss://minecraft.mncoleman.com -> 127.0.0.1:25569
+      - "127.0.0.1:25569:25565"
+
+    environment:
+      EULA: "TRUE"
+      TYPE: "PAPER"
+      VERSION: "1.12.2"
+
+      # Run as uid/gid 1001 (= ubuntu) so files in ./data are owned by our SSH
+      # user — keeps fetch-plugins.sh / build.sh / rsync working without sudo and
+      # avoids the stale-jar class of bug. Requires a one-time chown of ./data.
+      UID: "1001"
+      GID: "1001"
+
+      # RCON: enabled on the in-container port 25575 (NEVER host-published) with a
+      # strong password from .env. Used by rcon-cli (admin) now and the mc-auth
+      # bridge in Phase B.
+      ENABLE_RCON: "true"
+
+      # Heap < container cap, leaving headroom for Metaspace / off-heap / Netty.
+      MEMORY: "3G"
+      USE_AIKAR_FLAGS: "true"
+
+      # Small private server defaults — tune in server.properties after first run.
+      MAX_PLAYERS: "20"
+      MODE: "creative"            # default gamemode (per-world overrides come with Multiverse)
+      OPS: "Matthew"              # owner = operator (full in-game admin)
+      DIFFICULTY: "normal"
+      MOTD: "mncoleman private server"
+      ONLINE_MODE: "FALSE"      # Eaglercraft has no Mojang auth; identity is
+                                # enforced by the JWT plugin + whitelist instead.
+      # Paper whitelist is OFF: the EaglerJwtAuth plugin (fail-closed, locks the
+      # username to the account) is the sole admission gate. A second list would
+      # just kick valid JWT users (see PLAN §7.4).
+      ENABLE_WHITELIST: "FALSE"
+      ENFORCE_WHITELIST: "FALSE"
+      SPAWN_PROTECTION: "0"
+      VIEW_DISTANCE: "8"
+
+      # Plugins are provided via the bind-mounted ./data/plugins folder
+      # (populated by scripts/fetch-plugins.sh + the built auth plugin), so
+      # itzg should NOT try to manage/overwrite them.
+      TZ: "UTC"
+
+    volumes:
+      # Bind mount: world data + plugins live on disk, easy to back up / rsync.
+      - ./data:/data
+
+    healthcheck:
+      test: ["CMD", "mc-health"]
+      start_period: 3m
+      interval: 30s
+      retries: 5
+
+    # Stop sends SIGTERM; itzg traps it and saves the world cleanly.
+    stop_grace_period: 60s

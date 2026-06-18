@@ -1,0 +1,39 @@
+# ───────────────────────────────────────────────────────────────────────────
+# minecraft.mncoleman.com — APPEND this block to /etc/caddy/Caddyfile.
+# Self-contained; touches none of the existing site blocks.
+# Deploy: inject the forward secret, then  caddy validate → systemctl reload.
+#
+# Routing (handle blocks, first match wins):
+#   1. WebSocket upgrade  → the game listener (wss game traffic)
+#   2. auth paths         → mc-auth service (login, oauth, admin, verify)
+#   3. everything else    → the static Eaglercraft client (launcher + wasm/ + js/)
+#
+# Security note: the page is intentionally NOT gated here (the launcher shows a
+# "sign in" prompt itself). The real boundary is the in-game JWT plugin, which
+# denies any connection without a valid mc_session cookie.
+# ───────────────────────────────────────────────────────────────────────────
+minecraft.mncoleman.com {
+	encode zstd gzip
+
+	# 1) Game socket — routed by the WebSocket upgrade header so it shares the
+	#    bare domain with the static client. TLS terminates here; plain ws to
+	#    the loopback listener.
+	@ws {
+		header Connection *Upgrade*
+		header Upgrade    websocket
+	}
+	handle @ws {
+		reverse_proxy 127.0.0.1:25569 {
+			header_up X-Forwarded-For {remote_host}
+			# Must equal /data/eagler_forwarding.secret (EaglerXServer forward_secret).
+			header_up X-Eagler-Secret "__MC_FWD_SECRET__"
+		}
+	}
+
+	# 2) Everything else → mc-auth: login/oauth/admin/verify AND the static
+	#    Eaglercraft client (launcher + wasm/ + js/), served from a mounted
+	#    volume. Keeps Caddy filesystem-free, like the other sites.
+	handle {
+		reverse_proxy 127.0.0.1:7900
+	}
+}

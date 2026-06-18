@@ -1,0 +1,22 @@
+# EaglerJwtAuth — validates the mc-auth session JWT at the Eaglercraft handshake.
+#
+# The JWT secret is read from the MC_JWT_SECRET environment variable first
+# (preferred — keep it out of files), falling back to jwt-secret below.
+# It MUST match the secret used by the mc-auth service.
+
+jwt-secret: ""
+cookie-name: "mc_session"
+issuer: "mc-auth"
+audience: "minecraft.mncoleman.com"
+leeway-seconds: 30
+kick-message: "Please log in at https://minecraft.mncoleman.com to play."
+
+# Username binding:
+#   require = lock the in-game username to the account (per-world perms are safe)
+#   skip    = emergency fallback; admit without locking (sharing is NOT safe)
+lock-mode: "require"
+
+# Presence endpoint for the web panel (who's online + their world). Token comes
+# from MC_PRESENCE_TOKEN env (preferred). Port is in-container only (not published).
+presence-port: 25580
+presence-token: ""

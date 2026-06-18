@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>minecraft.mncoleman.com</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center;
+      font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+      color: #e8eaed;
+      background:
+        radial-gradient(1200px 600px at 50% -10%, #1c2a22 0%, transparent 60%),
+        #0d0f12;
+      padding: 1.5rem;
+    }
+    .card {
+      width: 100%; max-width: 380px; background: #14171d;
+      border: 1px solid #232a35; border-radius: 16px; padding: 1.75rem;
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    }
+    .logo { font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; margin: 0 0 .15rem; }
+    .sub { color: #8b95a3; margin: 0 0 1.5rem; font-size: .92rem; }
+    .err {
+      display: none; background: #3a1d24; border: 1px solid #6b2c39; color: #ffb3c0;
+      padding: .6rem .8rem; border-radius: 10px; font-size: .88rem; margin-bottom: 1rem;
+    }
+    .btn {
+      display: flex; align-items: center; justify-content: center; gap: .6rem;
+      width: 100%; padding: .75rem 1rem; border-radius: 10px; border: 1px solid #2c333f;
+      background: #1b2029; color: #e8eaed; font: inherit; font-weight: 600;
+      cursor: pointer; text-decoration: none; margin-bottom: .65rem;
+    }
+    .btn:hover { background: #222834; }
+    .btn.google { background: #fff; color: #1f1f1f; border-color: #fff; }
+    .btn.google:hover { background: #f1f1f1; }
+    #telegram-slot { display: flex; justify-content: center; margin-bottom: .65rem; }
+    .divider { display: flex; align-items: center; gap: .75rem; color: #5c6573; font-size: .8rem; margin: 1.1rem 0; }
+    .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: #232a35; }
+    form { display: grid; gap: .6rem; }
+    input {
+      width: 100%; padding: .7rem .85rem; border-radius: 10px; border: 1px solid #2c333f;
+      background: #0f1217; color: #e8eaed; font: inherit;
+    }
+    input:focus { outline: none; border-color: #3a7a57; }
+    .submit { background: #2f6f4f; border-color: #357a57; }
+    .submit:hover { background: #357f5a; }
+    .foot { color: #5c6573; font-size: .8rem; text-align: center; margin: 1.2rem 0 0; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1 class="logo">⛏ mncoleman</h1>
+    <p class="sub">Private Minecraft — sign in to play.</p>
+
+    <div class="err" id="err"></div>
+
+    <div id="telegram-slot"></div>
+
+    <a class="btn google hidden" id="google-btn" href="/auth/google">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.1 0 24 0 14.6 0 6.4 5.4 2.5 13.3l7.8 6.1C12.2 13.2 17.6 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-2.8-.4-4H24v7.6h12.7c-.3 2.1-1.6 5.2-4.7 7.3l7.2 5.6c4.3-4 6.9-9.9 6.9-16.5z"/><path fill="#FBBC05" d="M10.3 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.8-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.5 10.7l7.8-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.2-5.6c-2 1.3-4.6 2.3-8.7 2.3-6.4 0-11.8-3.7-13.7-9.9l-7.8 6.1C6.4 42.6 14.6 48 24 48z"/></svg>
+      Continue with Google
+    </a>
+
+    <div class="divider" id="email-divider">or with email</div>
+
+    <form method="post" action="/auth/email" id="email-form">
+      <input type="email" name="email" placeholder="email" autocomplete="email" required />
+      <input type="password" name="password" placeholder="password (min 8 chars)" autocomplete="current-password" minlength="8" required />
+      <button class="btn submit" type="submit">Sign in</button>
+    </form>
+
+    <p class="foot">Access is invite-only. First email sign-in sets your password.</p>
+  </div>
+
+  <script>
+    (function () {
+      var cfg = window.MC_AUTH || { providers: { telegram: false, google: false, email: true }, telegramBot: "", error: null };
+
+      var ERR = {
+        not_allowed: "You're not on the allowlist yet. Ask Matthew to add you.",
+        bad_credentials: "Wrong email or password.",
+        weak_password: "Password must be at least 12 characters.",
+        too_many_attempts: "Too many attempts — please wait a few minutes and try again.",
+        email_missing: "Enter your email and password.",
+        admin_only: "That page is admin-only.",
+        telegram: "Telegram sign-in failed. Try again.",
+        google_state: "Google sign-in expired. Try again.",
+        google_token: "Google sign-in failed. Try again.",
+        google_userinfo: "Couldn't read your Google profile. Try again.",
+        google_unverified: "Your Google email isn't verified."
+      };
+      if (cfg.error) {
+        var e = document.getElementById("err");
+        e.textContent = ERR[cfg.error] || "Sign-in failed. Try again.";
+        e.style.display = "block";
+      }
+
+      // Google
+      if (cfg.providers.google) document.getElementById("google-btn").classList.remove("hidden");
+
+      // Email
+      if (!cfg.providers.email) {
+        document.getElementById("email-form").classList.add("hidden");
+        document.getElementById("email-divider").classList.add("hidden");
+      }
+
+      // Telegram Login Widget (redirect mode → /auth/telegram/callback)
+      if (cfg.providers.telegram && cfg.telegramBot) {
+        var s = document.createElement("script");
+        s.async = true;
+        s.src = "https://telegram.org/js/telegram-widget.js?22";
+        s.setAttribute("data-telegram-login", cfg.telegramBot);
+        s.setAttribute("data-size", "large");
+        s.setAttribute("data-radius", "10");
+        s.setAttribute("data-auth-url", location.origin + "/auth/telegram/callback");
+        s.setAttribute("data-request-access", "write");
+        document.getElementById("telegram-slot").appendChild(s);
+      }
+    })();
+  </script>
+</body>
+</html>

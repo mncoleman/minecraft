@@ -1,0 +1,7 @@
+name: EaglerJwtAuth
+version: 1.1.0
+author: mncoleman
+description: Validates the mc-auth JWT cookie at the Eaglercraft handshake and locks the in-game username.
+main: com.mncoleman.mc.auth.EaglerJwtAuthPlugin
+# Must load after EaglercraftXServer (its API + auth events must exist first).
+depend: [EaglercraftXServer]
