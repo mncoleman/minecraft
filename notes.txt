@@ -1,0 +1,22 @@
+Seed:
+-249913614
+
+Locations:
+
+Cliff Build:
+x: 145, y: 64, Z: 270
+
+Mountain:
+A mountain: x: -936 y: 132 z: 567
+
+
+Commands:
+
+Teleport: /tp <x> <y> <z>
+
+
+To look at:
+
+x: 5010, z: -9395
+
+X: 2206, z: -2069

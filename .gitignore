@@ -1,0 +1,21 @@
+# secrets / local env — real secrets live on the server, never committed
+.env
+*.env
+
+# dependencies & build artifacts
+node_modules/
+target/
+.m2*/
+
+# server runtime data — worlds, logs, generated plugin configs live on the box
+server/data/
+
+# bulky upstream client downloads (re-obtainable; the staged copies under clients/ ARE committed)
+eaglerforge/
+EaglercraftX_1.8_WASM-GC_Offline_Download.html
+
+# imported world archives
+cliff build*
+
+# OS cruft
+.DS_Store

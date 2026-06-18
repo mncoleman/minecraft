@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Play · minecraft.mncoleman.com</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, sans-serif; color: #e8eaed;
+      background: radial-gradient(1100px 520px at 50% -8%, #16241c 0%, transparent 55%), #0b0d10; }
+    a { color: #7fb3ff; text-decoration: none; }
+    /* shared nav (matches the server-rendered pages) */
+    .nav { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: .4rem; padding: .6rem 1rem;
+      background: rgba(13,15,18,.85); backdrop-filter: blur(8px); border-bottom: 1px solid #1c2230; }
+    .brand { font-weight: 700; letter-spacing: -.02em; margin-right: .6rem; white-space: nowrap; }
+    .tabs { display: flex; gap: .2rem; flex: 1; flex-wrap: wrap; }
+    .tab { padding: .4rem .75rem; border-radius: 8px; color: #aeb6c2; font-weight: 600; font-size: .92rem; }
+    .tab:hover { background: #161b24; color: #e8eaed; }
+    .tab.active { background: #21402f; color: #dcf5e6; }
+    .tab-btn { background: none; border: none; font: inherit; padding: .4rem .75rem; border-radius: 8px; color: #aeb6c2; font-weight: 600; font-size: .92rem; cursor: pointer; }
+    .tab-btn:hover { background: #161b24; color: #e8eaed; }
+    .acct { display: flex; align-items: center; gap: .6rem; color: #8b95a3; font-size: .88rem; white-space: nowrap; }
+    .acct b { color: #e8eaed; }
+    .badge { font-size: .65rem; background: #2f4f7f; color: #dce8ff; padding: .1rem .4rem; border-radius: 5px; }
+    .main { display: grid; place-items: center; padding: 2.5rem 1.5rem 4rem; }
+    .card { width: 100%; max-width: 460px; background: #14171d; border: 1px solid #232a35;
+      border-radius: 16px; padding: 1.9rem; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+    h1 { font-size: 1.5rem; margin: 0 0 1.2rem; letter-spacing: -.02em; }
+    .play { display: flex; align-items: center; justify-content: center; gap: .55rem; width: 100%;
+      padding: .95rem 1rem; border-radius: 12px; border: 1px solid #357a57; background: #2f6f4f;
+      color: #fff; font: inherit; font-weight: 700; font-size: 1.05rem; text-decoration: none; }
+    .play:hover { background: #357f5a; }
+    .alt { display: block; text-align: center; margin: .85rem 0 0; color: #9aa4b2; font-size: .9rem; }
+    .alt a { color: #cdd6e2; }
+    .rec { display: inline-block; font-size: .68rem; background: #2f4f7f; color: #dce8ff;
+      padding: .12rem .4rem; border-radius: 5px; margin-left: .4rem; vertical-align: middle; }
+    .srv { margin: 1.5rem 0 0; padding: 1rem; background: #0f1217; border: 1px solid #232a35; border-radius: 12px; }
+    .srv .lbl { color: #8b95a3; font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .4rem; }
+    .row { display: flex; gap: .5rem; }
+    .row input { flex: 1; padding: .55rem .7rem; border-radius: 8px; border: 1px solid #2c333f;
+      background: #0b0d11; color: #e8eaed; font: inherit; font-family: ui-monospace, monospace; font-size: .9rem; }
+    .row button { padding: .55rem .8rem; border-radius: 8px; border: 1px solid #2c333f; background: #1b2029;
+      color: #e8eaed; font: inherit; cursor: pointer; }
+    .row button:hover { background: #222834; }
+    .steps { margin: .8rem 0 0; padding-left: 1.1rem; color: #9aa4b2; font-size: .86rem; }
+    .steps li { margin: .15rem 0; }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <span class="brand">⛏ mncoleman</span>
+    <div class="tabs">
+      <a class="tab active" href="/" title="Shortcut: Y">Play</a>
+      <a class="tab" href="/worlds" title="Shortcut: W">Worlds</a>
+      <a class="tab" id="admin-tab" href="/admin" style="display:none" title="Shortcut: A">Admin</a>
+      <a class="tab" href="/help" title="Shortcut: G">Guide</a>
+      <a class="tab" href="/profile" title="Shortcut: P">Profile</a>
+    </div>
+    <div class="acct"><span id="acct-name"></span><form method="post" action="/logout" style="margin:0;display:inline"><button class="tab-btn" type="submit">Log out</button></form></div>
+  </nav>
+
+  <div class="main">
+    <div class="card">
+      <h1>⛏ Ready to play</h1>
+
+      <a class="play" id="play-primary" href="#">Play</a>
+      <span class="alt" id="alt-line"></span>
+
+      <div class="srv">
+        <div class="lbl">How it works</div>
+        <ol class="steps">
+          <li>Click <b>Play</b> — you connect to the server automatically (no menus).</li>
+          <li><b>First time only:</b> set your in-game name to <b id="ign">your account name</b> on the title screen → <b>Edit Profile</b>, so it matches your account.</li>
+          <li>Use the <a href="/worlds">Worlds</a> tab to <b>Hop in</b> to a world or <b>Join</b> whoever's online.</li>
+        </ol>
+        <div class="lbl" style="margin-top:1.1rem">Server address (only if it ever asks)</div>
+        <div class="row">
+          <input id="addr" readonly value="wss://minecraft.mncoleman.com/" />
+          <button id="copy">Copy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      // Single-key nav shortcuts (ignored while typing). 'a' enabled once we know you're admin.
+      var navMap = { w: "/worlds", g: "/help", p: "/profile", y: "/" };
+      document.addEventListener("keydown", function (e) {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        var t = e.target || {}, n = (t.tagName || "").toUpperCase();
+        if (n === "INPUT" || n === "TEXTAREA" || n === "SELECT" || t.isContentEditable) return;
+        var d = navMap[(e.key || "").toLowerCase()];
+        if (d) { e.preventDefault(); location.href = d; }
+      });
+
+      var ua = navigator.userAgent;
+      var isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+      var isSafari = /^((?!chrome|android|crios|fxios).)*safari/i.test(ua);
+      var hasJSPI = (typeof WebAssembly !== "undefined") && ("Suspending" in WebAssembly);
+      var useWasm = hasJSPI && !isIOS && !isSafari;
+
+      var primary = document.getElementById("play-primary");
+      var alt = document.getElementById("alt-line");
+      if (useWasm) {
+        primary.href = "wasm/";
+        primary.innerHTML = 'Play <span class="rec">fastest</span>';
+        alt.innerHTML = 'On Safari or iPhone? <a href="js/">Use the compatible client →</a>';
+      } else {
+        primary.href = "js/";
+        primary.textContent = "Play";
+        alt.innerHTML = 'On Chrome/Firefox desktop? <a href="wasm/">Try the faster client →</a>';
+      }
+
+      // Account info for the nav (username + admin tab).
+      fetch("/auth/verify", { credentials: "same-origin" })
+        .then(function (r) { return r.ok ? { u: r.headers.get("X-Mc-User"), a: r.headers.get("X-Mc-Admin") === "1" } : null; })
+        .then(function (info) {
+          if (!info) return;
+          document.getElementById("acct-name").innerHTML = "<b>" + info.u + "</b>" + (info.a ? ' <span class="badge">admin</span>' : "");
+          var ign = document.getElementById("ign"); if (ign && info.u) ign.textContent = info.u;
+          if (info.a) { document.getElementById("admin-tab").style.display = ""; navMap.a = "/admin"; }
+        })
+        .catch(function () {});
+
+      document.getElementById("copy").addEventListener("click", function () {
+        var inp = document.getElementById("addr");
+        inp.select();
+        navigator.clipboard && navigator.clipboard.writeText(inp.value);
+        this.textContent = "Copied";
+        var self = this; setTimeout(function () { self.textContent = "Copy"; }, 1500);
+      });
+    })();
+  </script>
+</body>
+</html>
