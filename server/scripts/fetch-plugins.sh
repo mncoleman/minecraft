@@ -39,11 +39,14 @@ curl -fsSL "https://github.com/lax1dude/eaglerxserver/releases/download/v1.1.0/E
 # Format: "<sha256>  <filename>  <url>"
 # Sources: forgecdn = CurseForge CDN (dev.bukkit.org files; curl-able, unlike the
 # Cloudflare-protected /download links). LuckPerms from luckperms.net CDN.
+# QualityArmory (guns) from the Modrinth CDN; v2.1.3 supports 1.12.2 and is fully
+# server-side (works through the Via chain to the 1.8 Eaglercraft client).
 PINNED=(
   "f43b8aa54870d157463fe46902a284f4e386200a58773d21f9a4734fde336b35  Multiverse-Core-2.5.0.jar  https://mediafilez.forgecdn.net/files/2428/161/Multiverse-Core-2.5.0.jar"
   "5a7b88f6f75b4a0b6efd47ae03e9c26a2036ecd122b03a45ca635dde386d6186  worldedit-bukkit-6.1.9.jar  https://mediafilez.forgecdn.net/files/2597/538/worldedit-bukkit-6.1.9.jar"
   "013655a9573d0d26bc884aa07f0d543206041ec044dfe513a894c607ff354c98  worldguard-bukkit-6.2.2.jar  https://mediafilez.forgecdn.net/files/2610/618/worldguard-bukkit-6.2.2.jar"
   "a99792c87b521a1490863ab06ec4e91485a61996650109e457b946a628fc8eba  LuckPerms-Bukkit-5.5.55.jar  https://download.luckperms.net/1643/bukkit/loader/LuckPerms-Bukkit-5.5.55.jar"
+  "efe573af2d16b10c7b8e9640615a52915ba6dd0340d326833f11fc9375467c4e  QualityArmory.jar  https://cdn.modrinth.com/data/flkUwsSr/versions/fdVKuHYp/QualityArmory.jar"
 )
 echo "Downloading multi-world platform plugins (with SHA-256 verification) -> $DEST"
 for entry in "${PINNED[@]}"; do
