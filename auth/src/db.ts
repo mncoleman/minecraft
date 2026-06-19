@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { config, isAdminEmail, isAdminTelegram } from "./config.ts";
 
 export const db = new Database(config.dbPath, { create: true });
@@ -118,7 +118,32 @@ CREATE TABLE IF NOT EXISTS saved_locations (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_savedloc_user ON saved_locations(user_id);
+
+-- Single-use, expiring tokens for password reset, email verification, and email
+-- change. The raw token is only ever in the emailed link; we store its SHA-256.
+CREATE TABLE IF NOT EXISTS tokens (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purpose    TEXT NOT NULL,       -- reset_password | verify_email | change_email
+  token_hash TEXT NOT NULL,       -- sha256(raw token)
+  new_value  TEXT,                -- change_email: the target email
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_tokens_hash ON tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_tokens_user ON tokens(user_id);
 `);
+
+// ── migrations (idempotent; run on every boot, no-op once applied) ─────────────
+function columnExists(table: string, col: string): boolean {
+  return (db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).some((c) => c.name === col);
+}
+if (!columnExists("users", "email_verified")) {
+  db.exec("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0");
+  // Grandfather existing accounts so the new flow never nags or locks them out.
+  db.exec("UPDATE users SET email_verified = 1 WHERE email IS NOT NULL");
+}
 
 export interface User {
   id: string;
@@ -130,6 +155,7 @@ export interface User {
   google_sub: string | null;
   google_email: string | null;
   is_admin: number;
+  email_verified: number;
   created_at: number;
   last_login_at: number | null;
 }
@@ -268,6 +294,78 @@ export function resolveGoogleUser(p: { sub: string; email: string; name?: string
 // params from the stored hash, so existing hashes keep working unchanged.
 export function hashPassword(pw: string): Promise<string> {
   return Bun.password.hash(pw, { algorithm: "argon2id", memoryCost: 19456, timeCost: 2 });
+}
+
+// ── user lookups + mutations (account management) ────────────────────────────
+
+export function getUserById(id: string): User | null {
+  return db.query("SELECT * FROM users WHERE id = ?").get(id) as User | null;
+}
+
+export function getUserByEmail(email: string): User | null {
+  return db.query("SELECT * FROM users WHERE email = ? COLLATE NOCASE").get(email.trim().toLowerCase()) as User | null;
+}
+
+export function emailInUse(email: string, exceptUserId?: string): boolean {
+  const row = getUserByEmail(email);
+  return !!row && row.id !== exceptUserId;
+}
+
+/** Apply a confirmed email change. Also keeps the allowlist entry in sync so the
+ *  account still resolves on a future email login. Returns false if taken. */
+export function setUserEmail(userId: string, email: string): boolean {
+  const norm = email.trim().toLowerCase();
+  if (emailInUse(norm, userId)) return false;
+  db.run("UPDATE users SET email = ?, email_verified = 1 WHERE id = ?", [norm, userId]);
+  const u = getUserById(userId);
+  if (u) addAllow("email", norm, u.username);
+  return true;
+}
+
+export function markEmailVerified(userId: string): void {
+  db.run("UPDATE users SET email_verified = 1 WHERE id = ?", [userId]);
+}
+
+export async function setPassword(userId: string, password: string): Promise<void> {
+  db.run("UPDATE users SET password_hash = ? WHERE id = ?", [await hashPassword(password), userId]);
+}
+
+// ── single-use tokens (reset / verify / change-email) ────────────────────────
+
+export type TokenPurpose = "reset_password" | "verify_email" | "change_email";
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+
+/** Mint a token, store only its hash, return the raw value for the email link.
+ *  Any prior unused token of the same purpose for this user is invalidated. */
+export function createToken(userId: string, purpose: TokenPurpose, ttlSec: number, newValue?: string): string {
+  db.run("UPDATE tokens SET used_at = ? WHERE user_id = ? AND purpose = ? AND used_at IS NULL", [now(), userId, purpose]);
+  const raw = randomBytes(32).toString("hex");
+  db.run(
+    "INSERT INTO tokens (id, user_id, purpose, token_hash, new_value, created_at, expires_at) VALUES (?,?,?,?,?,?,?)",
+    [randomUUID(), userId, purpose, sha256(raw), newValue ?? null, now(), now() + ttlSec],
+  );
+  return raw;
+}
+
+export interface TokenRow { userId: string; purpose: TokenPurpose; newValue: string | null }
+
+/** Validate a token WITHOUT consuming it (for showing a reset form on GET). */
+export function checkToken(raw: string, allowed: TokenPurpose[]): TokenRow | null {
+  const row = db.query("SELECT * FROM tokens WHERE token_hash = ?").get(sha256(raw)) as
+    | { user_id: string; purpose: TokenPurpose; new_value: string | null; expires_at: number; used_at: number | null }
+    | null;
+  if (!row || row.used_at || now() > row.expires_at || !allowed.includes(row.purpose)) return null;
+  return { userId: row.user_id, purpose: row.purpose, newValue: row.new_value };
+}
+
+/** Validate AND consume (single-use) a token. */
+export function consumeToken(raw: string, allowed: TokenPurpose[]): TokenRow | null {
+  const row = db.query("SELECT * FROM tokens WHERE token_hash = ?").get(sha256(raw)) as
+    | { id: string; user_id: string; purpose: TokenPurpose; new_value: string | null; expires_at: number; used_at: number | null }
+    | null;
+  if (!row || row.used_at || now() > row.expires_at || !allowed.includes(row.purpose)) return null;
+  db.run("UPDATE tokens SET used_at = ? WHERE id = ?", [now(), row.id]);
+  return { userId: row.user_id, purpose: row.purpose, newValue: row.new_value };
 }
 
 export async function resolveEmailLogin(email: string, password: string): Promise<Resolved> {

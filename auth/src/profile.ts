@@ -1,10 +1,13 @@
-import type { Hono, Context } from "hono";
+import type { Hono } from "hono";
 import { currentSession } from "./session.ts";
-import { db, hashPassword, type User } from "./db.ts";
+import { db, hashPassword, createToken, emailInUse, type User } from "./db.ts";
 import { config } from "./config.ts";
+import { clientIp, rateLimited } from "./session.ts";
+import { sendEmailChange, sendVerifyEmail } from "./mailer.ts";
 import { shell, esc } from "./layout.ts";
 
 const OWNER_EMAIL = (config.adminEmails[0] || "").toLowerCase();
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 function profilePage(u: User, msg?: string, err?: string): string {
   const owner = (u.email || "").toLowerCase() === OWNER_EMAIL;
@@ -15,26 +18,48 @@ function profilePage(u: User, msg?: string, err?: string): string {
     u.google_sub ? "google" : null,
   ].filter(Boolean).join(", ") || "—";
 
+  const verifyBadge = u.email
+    ? (u.email_verified
+        ? ' <span class="badge badge-ok">verified</span>'
+        : ' <span class="badge">unverified</span>')
+    : "";
+
   const body = `
     <h1>Profile</h1>
     <p class="sub">Your account and in-game identity.</p>
     <div class="card">
       <table>
-        <tr><td>In-game username</td><td><b>${esc(u.username)}</b><div class="hint">Set this exact name in the client (Main menu → Edit Profile → Username) or you'll be asked to.</div></td></tr>
-        <tr><td>Email</td><td>${u.email ? esc(u.email) : '<span class="hint">—</span>'}</td></tr>
+        <tr><td>In-game username</td><td><b>${esc(u.username)}</b><div class="hint">Set this exact name in the client (Main menu → Edit Profile → Username) or you'll be asked to. Usernames are permanent and can't be changed.</div></td></tr>
+        <tr><td>Email</td><td>${u.email ? esc(u.email) + verifyBadge : '<span class="hint">—</span>'}</td></tr>
         <tr><td>Role</td><td><span class="badge${role === "member" ? "" : "-ok"}">${esc(role)}</span></td></tr>
         <tr><td>Sign-in methods</td><td class="hint">${esc(links)}</td></tr>
         <tr><td>Joined</td><td class="hint">${u.created_at ? new Date(u.created_at * 1000).toISOString().slice(0, 10) : ""}</td></tr>
       </table>
     </div>
+
+    <h2>Change email</h2>
+    <div class="card">
+      <form method="post" action="/profile/email" style="display:grid;gap:.6rem;max-width:340px">
+        <input type="email" name="email" placeholder="new email" required/>
+        ${u.password_hash ? '<input type="password" name="current" placeholder="current password" autocomplete="current-password" required/>' : ""}
+        <button class="btn-primary" style="justify-self:start">Send confirmation</button>
+      </form>
+      <p class="hint" style="margin:.5rem 0 0">We email a confirmation link to the new address. The change only takes effect after you click it.</p>
+      ${u.email && !u.email_verified ? `
+      <form method="post" action="/profile/verify" style="margin:.8rem 0 0">
+        <button class="btn-ghost" style="justify-self:start">Resend verification to ${esc(u.email)}</button>
+      </form>` : ""}
+    </div>
+
     ${u.password_hash ? `
     <h2>Change password</h2>
     <div class="card">
       <form method="post" action="/profile/password" style="display:grid;gap:.6rem;max-width:340px">
-        <input type="password" name="current" placeholder="current password" required/>
-        <input type="password" name="next" placeholder="new password (min 12 chars)" minlength="12" required/>
+        <input type="password" name="current" placeholder="current password" autocomplete="current-password" required/>
+        <input type="password" name="next" placeholder="new password (min 12 chars)" minlength="12" autocomplete="new-password" required/>
         <button class="btn-primary" style="justify-self:start">Update password</button>
       </form>
+      <p class="hint" style="margin:.5rem 0 0">Forgot it? <a href="/forgot">Reset by email</a>.</p>
     </div>` : ""}
   `;
   return shell({ title: "Profile", active: "profile", username: u.username, admin: !!u.is_admin, body, msg, err });
@@ -63,5 +88,51 @@ export function mountProfile(app: Hono): void {
     }
     db.run("UPDATE users SET password_hash = ? WHERE id = ?", [await hashPassword(next), u.id]);
     return c.redirect("/profile?msg=" + encodeURIComponent("Password updated."));
+  });
+
+  // Request an email change: confirm-by-link to the NEW address. Nothing changes
+  // until that link is clicked (handled in account.ts /verify/:token).
+  app.post("/profile/email", async (c) => {
+    const s = await currentSession(c);
+    if (!s) return c.redirect("/login");
+    const u = db.query("SELECT * FROM users WHERE id = ?").get(s.sub) as User | null;
+    if (!u) return c.redirect("/login");
+    if (rateLimited("emailchange:" + clientIp(c))) {
+      return c.redirect("/profile?err=" + encodeURIComponent("Too many attempts. Wait a few minutes."));
+    }
+    const form = await c.req.parseBody();
+    const email = String(form.email ?? "").trim().toLowerCase();
+    // If the account has a password, require it to authorize the change.
+    if (u.password_hash) {
+      const current = String(form.current ?? "");
+      if (!(await Bun.password.verify(current, u.password_hash))) {
+        return c.redirect("/profile?err=" + encodeURIComponent("Current password is incorrect."));
+      }
+    }
+    if (!EMAIL_RE.test(email)) return c.redirect("/profile?err=" + encodeURIComponent("Enter a valid email address."));
+    if (email === (u.email || "").toLowerCase()) return c.redirect("/profile?err=" + encodeURIComponent("That is already your email."));
+    if (emailInUse(email, u.id)) return c.redirect("/profile?err=" + encodeURIComponent("That email is already in use."));
+
+    const raw = createToken(u.id, "change_email", 24 * 3600, email);
+    const res = await sendEmailChange(email, `${config.publicBaseUrl}/verify/${raw}`);
+    if (!res.ok) return c.redirect("/profile?err=" + encodeURIComponent("Could not send the confirmation email. Try again later."));
+    return c.redirect("/profile?msg=" + encodeURIComponent("Confirmation sent to " + email + ". Click the link there to finish."));
+  });
+
+  // Resend a verification link to the user's current email.
+  app.post("/profile/verify", async (c) => {
+    const s = await currentSession(c);
+    if (!s) return c.redirect("/login");
+    const u = db.query("SELECT * FROM users WHERE id = ?").get(s.sub) as User | null;
+    if (!u) return c.redirect("/login");
+    if (!u.email) return c.redirect("/profile?err=" + encodeURIComponent("No email on this account."));
+    if (u.email_verified) return c.redirect("/profile?msg=" + encodeURIComponent("Your email is already verified."));
+    if (rateLimited("verifyemail:" + clientIp(c))) {
+      return c.redirect("/profile?err=" + encodeURIComponent("Too many attempts. Wait a few minutes."));
+    }
+    const raw = createToken(u.id, "verify_email", 24 * 3600);
+    const res = await sendVerifyEmail(u.email, `${config.publicBaseUrl}/verify/${raw}`);
+    if (!res.ok) return c.redirect("/profile?err=" + encodeURIComponent("Could not send the email. Try again later."));
+    return c.redirect("/profile?msg=" + encodeURIComponent("Verification sent to " + u.email + "."));
   });
 }
