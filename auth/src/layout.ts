@@ -74,7 +74,7 @@ export function shell(o: ShellOpts): string {
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>${esc(o.title)}</title><style>${SHARED_CSS}</style></head><body>
 <nav class="nav">
-  <span class="brand">⛏ mncoleman</span>
+  <span class="brand">⛏ Minecraft</span>
   <div class="tabs">
     ${tab("play", "/", "Play", "Y")}
     ${tab("worlds", "/worlds", "Worlds", "W")}
