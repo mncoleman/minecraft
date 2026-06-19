@@ -31,7 +31,23 @@ h2{font-size:1.05rem;margin:2rem 0 .6rem;color:#cdd6e2}
 .muted,.hint{color:#8b95a3}.hint{font-size:.88rem}
 code{background:#0f1217;border:1px solid #232a35;border-radius:6px;padding:.1rem .4rem;font-family:ui-monospace,monospace;font-size:.84rem;color:#a8e6c0}
 input,select,button,textarea{font:inherit;padding:.55rem .7rem;border-radius:9px;border:1px solid #2c333f;background:#161a22;color:#e8eaed}
-input:focus,select:focus,textarea:focus{outline:none;border-color:#3a7a57}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#3a7a57;box-shadow:0 0 0 3px rgba(58,122,87,.18)}
+input::placeholder{color:#6b7585}
+/* custom-caret select (replaces the native OS dropdown chrome) */
+select{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:1.95rem;
+  background:#161a22 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b95a3' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right .65rem center}
+select:hover{border-color:#39414f}
+/* toggle switch (styled checkbox) */
+.switch{position:relative;display:inline-flex;align-items:center;gap:.55rem;cursor:pointer;user-select:none;color:#cdd6e2;font-size:.9rem;white-space:nowrap}
+.switch input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+.switch .track{position:relative;flex:none;width:40px;height:22px;border-radius:999px;background:#2c333f;border:1px solid #39414f;transition:background .15s,border-color .15s}
+.switch .track::after{content:"";position:absolute;top:50%;left:2px;transform:translateY(-50%);width:16px;height:16px;border-radius:50%;background:#cdd6e2;transition:left .15s,background .15s}
+.switch:hover .track{border-color:#4a5365}
+.switch input:checked + .track{background:#2f6f4f;border-color:#357a57}
+.switch input:checked + .track::after{left:20px;background:#fff}
+.switch input:focus-visible + .track{box-shadow:0 0 0 3px rgba(47,111,79,.45)}
+/* label + control pairs sitting inline in a row */
+.inline-field{display:inline-flex;align-items:center;gap:.45rem;color:#8b95a3;font-size:.9rem;white-space:nowrap}
 textarea{width:100%;min-height:320px;font-family:ui-monospace,monospace;font-size:.9rem;line-height:1.5;resize:vertical}
 button{cursor:pointer;font-weight:600}
 .pill{display:inline-block;background:#1b2029;border:1px solid #2c333f;border-radius:8px;padding:.35rem .65rem;color:#cdd6e2;font-size:.83rem;font-weight:600}

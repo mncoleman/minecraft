@@ -17,7 +17,7 @@ async function meAdmin(c: Context) {
   return { sub: s.sub, username: s.username, owner };
 }
 
-function adminPage(me: { username: string; owner: boolean }, online: Set<string>, msg?: string, err?: string): string {
+function adminPage(me: { sub: string; username: string; owner: boolean }, online: Set<string>, msg?: string, err?: string): string {
   const users = db.query("SELECT * FROM users ORDER BY created_at").all() as User[];
   const invites = listInvites();
   const worlds = listAllWorlds();
@@ -31,13 +31,24 @@ function adminPage(me: { username: string; owner: boolean }, online: Set<string>
       <td style="text-align:right">${iv.status === "pending" ? `<form method="post" action="/admin/invites/${esc(iv.code)}/revoke" style="margin:0"><button class="btn-danger">revoke</button></form>` : ""}</td>
     </tr>`).join("");
 
-  const userRows = users.map((u) =>
-    `<tr>
+  const userRows = users.map((u) => {
+    const isOwnerRow = (u.email || "").toLowerCase() === OWNER_EMAIL;
+    const roleForm = me.owner && !isOwnerRow
+      ? `<form method="post" action="/admin/users/${u.id}/role" style="margin:0;display:inline"><input type="hidden" name="is_admin" value="${u.is_admin ? 0 : 1}"/><button class="btn-ghost">${u.is_admin ? "demote" : "make admin"}</button></form>`
+      : "";
+    // Admins can delete users; the owner is never deletable, you can't delete
+    // yourself, and only the owner can delete another admin.
+    const canDelete = !isOwnerRow && u.id !== me.sub && (me.owner || !u.is_admin);
+    const deleteForm = canDelete
+      ? `<form method="post" action="/admin/users/${u.id}/delete" style="margin:0;display:inline" onsubmit="return confirm('Delete ${esc(u.username)}? This permanently removes their account and revokes all access. They must not own any worlds. This cannot be undone.')"><button class="btn-danger">delete</button></form>`
+      : "";
+    return `<tr>
       <td><span class="dot ${online.has(u.username.toLowerCase()) ? "on" : ""}"></span><b>${esc(u.username)}</b>${u.is_admin ? ' <span class="badge">admin</span>' : ""}</td>
       <td class="hint">${u.email ? esc(u.email) : "—"}</td>
       <td class="hint">${u.last_login_at ? new Date(u.last_login_at * 1000).toISOString().slice(0, 10) : "never"}</td>
-      <td style="text-align:right">${me.owner && (u.email || "").toLowerCase() !== OWNER_EMAIL ? `<form method="post" action="/admin/users/${u.id}/role" style="margin:0"><input type="hidden" name="is_admin" value="${u.is_admin ? 0 : 1}"/><button class="btn-ghost">${u.is_admin ? "demote" : "make admin"}</button></form>` : ""}</td>
-    </tr>`).join("");
+      <td style="text-align:right"><div style="display:inline-flex;gap:.4rem;justify-content:flex-end;flex-wrap:wrap">${roleForm}${deleteForm}</div></td>
+    </tr>`;
+  }).join("");
 
   const body = `
     <h1>Admin</h1>
@@ -45,14 +56,18 @@ function adminPage(me: { username: string; owner: boolean }, online: Set<string>
 
     <h2>Invite a friend</h2>
     <div class="card">
-      <form method="post" action="/admin/invites" class="row">
-        <input name="email" placeholder="friend's email (optional)"/>
-        <input name="suggested_username" placeholder="suggested username (optional)"/>
-        ${me.owner ? `<select name="role"><option value="user">user</option><option value="admin">admin</option></select>` : ""}
-        <label class="hint" style="display:flex;align-items:center;gap:.35rem;white-space:nowrap"><input type="checkbox" name="send_email" value="1"/> email it to them</label>
-        <button class="btn-primary">Create invite link</button>
+      <form method="post" action="/admin/invites">
+        <div class="row">
+          <input name="email" type="email" placeholder="friend's email (optional)" autocomplete="off"/>
+          <input name="suggested_username" placeholder="suggested username (optional)" autocomplete="off"/>
+        </div>
+        <div class="row" style="margin-top:.6rem">
+          ${me.owner ? `<label class="inline-field">Role<select name="role" style="flex:none;min-width:130px"><option value="user">user</option><option value="admin">admin</option></select></label>` : ""}
+          <label class="switch"><input type="checkbox" name="send_email" value="1"/><span class="track"></span><span>Email the invite</span></label>
+          <button class="btn-primary" style="margin-left:auto">Create invite link</button>
+        </div>
       </form>
-      <p class="hint" style="margin:.5rem 0 0">Share the generated link; they pick a username + password and they're in. Tick "email it to them" (needs an email) to have us send the invite for you.</p>
+      <p class="hint" style="margin:.7rem 0 0">Share the generated link; they pick a username + password and they're in. Turn on "Email the invite" (needs an email) to have us send it for you.</p>
     </div>
     ${invites.length ? `<table><thead><tr><th>Invite</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>${inviteRows}</tbody></table>` : '<p class="hint">No invites yet.</p>'}
 

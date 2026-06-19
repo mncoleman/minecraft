@@ -330,6 +330,35 @@ export async function setPassword(userId: string, password: string): Promise<voi
   db.run("UPDATE users SET password_hash = ? WHERE id = ?", [await hashPassword(password), userId]);
 }
 
+export function ownedWorldCount(userId: string): number {
+  return (db.query("SELECT COUNT(*) AS n FROM worlds WHERE owner_user_id = ?").get(userId) as { n: number }).n;
+}
+
+/** Hard-delete a user and every DB reference to them, in one transaction. The
+ *  caller must enforce who-may-delete and that the user owns NO worlds first
+ *  (worlds.owner_user_id has no cascade — deleting a world owner would throw).
+ *  Allowlist entries for their identities are removed so they can't silently
+ *  re-create the account on next login. Returns the username, or null if gone. */
+export function deleteUser(userId: string): { username: string } | null {
+  const u = getUserById(userId);
+  if (!u) return null;
+  db.transaction(() => {
+    db.run("DELETE FROM invites WHERE invited_by = ? OR accepted_user_id = ?", [userId, userId]);
+    db.run("DELETE FROM world_shares WHERE granted_by = ? OR grantee_user_id = ?", [userId, userId]);
+    if (u.email) db.run("DELETE FROM allowlist WHERE kind = 'email' AND value = ? COLLATE NOCASE", [u.email]);
+    if (u.google_email) db.run("DELETE FROM allowlist WHERE kind IN ('email','google') AND value = ? COLLATE NOCASE", [u.google_email]);
+    if (u.telegram_id) db.run("DELETE FROM allowlist WHERE kind = 'telegram' AND value = ?", [u.telegram_id]);
+    db.run("DELETE FROM allowlist WHERE kind = 'username' AND value = ? COLLATE NOCASE", [u.username]);
+    db.run("DELETE FROM player_locations WHERE username = ? COLLATE NOCASE", [u.username]);
+    db.run("DELETE FROM pending_destination WHERE username = ? COLLATE NOCASE", [u.username]);
+    db.run("DELETE FROM teleport_history WHERE user_id = ?", [userId]);
+    db.run("DELETE FROM saved_locations WHERE user_id = ?", [userId]);
+    db.run("DELETE FROM tokens WHERE user_id = ?", [userId]);
+    db.run("DELETE FROM users WHERE id = ?", [userId]);
+  })();
+  return { username: u.username };
+}
+
 // ── single-use tokens (reset / verify / change-email) ────────────────────────
 
 export type TokenPurpose = "reset_password" | "verify_email" | "change_email";

@@ -1,11 +1,12 @@
 import type { Hono, Context } from "hono";
 import { randomBytes, randomUUID } from "node:crypto";
-import { db, addAllow, resolveEmailLogin, sanitizeUsername, createToken } from "./db.ts";
+import { db, addAllow, resolveEmailLogin, sanitizeUsername, createToken, getUserById, ownedWorldCount, deleteUser } from "./db.ts";
 import { config } from "./config.ts";
 import { currentSession } from "./session.ts";
 import { signSession } from "./jwt.ts";
 import { setSessionCookie, clientIp, rateLimited } from "./session.ts";
 import { sendInvite, sendVerifyEmail } from "./mailer.ts";
+import { listWorldsSharedWith, revokeBuild } from "./worlds.ts";
 
 const now = () => Math.floor(Date.now() / 1000);
 const OWNER_EMAIL = (config.adminEmails[0] || "").toLowerCase();
@@ -113,6 +114,29 @@ export function mountInvites(app: Hono): void {
     }
     db.run("UPDATE users SET is_admin = ? WHERE id = ?", [makeAdmin ? 1 : 0, c.req.param("id")]);
     return c.redirect("/admin?msg=" + encodeURIComponent(makeAdmin ? "Promoted to admin." : "Demoted to user."));
+  });
+
+  // Delete a user (admin-only). Guards: never the owner, never yourself, and a
+  // plain admin can't delete another admin (only the owner can). The account
+  // must own no worlds (those are irreplaceable — reassign/delete them first).
+  app.post("/admin/users/:id/delete", async (c) => {
+    const adm = await requireAdmin(c);
+    if (!adm) return c.redirect("/worlds?err=" + encodeURIComponent("Admins only."));
+    const targetId = c.req.param("id");
+    if (targetId === adm.sub) return c.redirect("/admin?err=" + encodeURIComponent("You can't delete your own account."));
+    const target = getUserById(targetId);
+    if (!target) return c.redirect("/admin?err=" + encodeURIComponent("User not found."));
+    if ((target.email || "").toLowerCase() === OWNER_EMAIL) return c.redirect("/admin?err=" + encodeURIComponent("The owner account can't be deleted."));
+    if (target.is_admin && !(await isOwner(c))) return c.redirect("/admin?err=" + encodeURIComponent("Only the owner can delete an admin."));
+    const owned = ownedWorldCount(targetId);
+    if (owned > 0) return c.redirect("/admin?err=" + encodeURIComponent(`${target.username} owns ${owned} world(s). Reassign or delete those first.`));
+
+    // Capture their build grants before deletion so we can revoke them in-game.
+    const shared = listWorldsSharedWith(targetId);
+    const res = deleteUser(targetId);
+    if (!res) return c.redirect("/admin?err=" + encodeURIComponent("User not found."));
+    for (const w of shared) { try { await revokeBuild(res.username, w.mv_world_name); } catch { /* best-effort */ } }
+    return c.redirect("/admin?msg=" + encodeURIComponent(`Deleted ${res.username} and revoked their access.`));
   });
 
   // Public signup via invite link.
