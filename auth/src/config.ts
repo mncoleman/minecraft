@@ -31,6 +31,12 @@ export const config = {
     clientId: process.env.GOOGLE_CLIENT_ID ?? "",
     clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
   },
+  // Transactional email via Resend. If apiKey is empty the mailer no-ops (logs
+  // what it would have sent) so dev/local runs don't fail.
+  resend: {
+    apiKey: process.env.RESEND_API_KEY ?? "",
+    from: process.env.RESEND_FROM ?? "MNColeman Minecraft <mail@mncoleman.com>",
+  },
 
   adminEmails: splitList(process.env.ADMIN_EMAILS).map((e) => e.toLowerCase()),
   adminTelegramIds: splitList(process.env.ADMIN_TELEGRAM_IDS),

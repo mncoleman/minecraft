@@ -12,6 +12,7 @@ import { mountHelp } from "./help.ts";
 import { mountWorlds } from "./worlds_admin.ts";
 import { mountInvites } from "./invites.ts";
 import { mountProfile } from "./profile.ts";
+import { mountAccount } from "./account.ts";
 import { reconcile, bootstrapWorlds } from "./worlds.ts";
 import { startHopAutoRoute, startLocationLogger } from "./presence.ts";
 
@@ -62,6 +63,15 @@ mountHelp(app);
 mountWorlds(app);
 mountInvites(app);
 mountProfile(app);
+mountAccount(app);
+
+// Public branding asset for transactional emails (email clients fetch it with no
+// cookie, so it must be ungated). Served from the baked-in public/ dir.
+app.get("/email-logo.png", async (c) => {
+  const f = Bun.file(new URL("../public/email-logo.png", import.meta.url).pathname);
+  if (!(await f.exists())) return c.text("not found", 404);
+  return new Response(f, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
+});
 
 // Boot reconciler: seed + re-push all world access grants so the live server
 // self-heals. Retries a few times in case RCON isn't warm yet on cold boot.

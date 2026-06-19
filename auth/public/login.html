@@ -69,9 +69,10 @@
 
     <form method="post" action="/auth/email" id="email-form">
       <input type="email" name="email" placeholder="email" autocomplete="email" required />
-      <input type="password" name="password" placeholder="password (min 8 chars)" autocomplete="current-password" minlength="8" required />
+      <input type="password" name="password" placeholder="password" autocomplete="current-password" required />
       <button class="btn submit" type="submit">Sign in</button>
     </form>
+    <p class="foot" id="forgot-line" style="margin-top:.7rem"><a href="/forgot" style="color:#7fd0a3;text-decoration:none">Forgot password?</a></p>
 
     <p class="foot">Access is invite-only. First email sign-in sets your password.</p>
   </div>

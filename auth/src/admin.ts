@@ -49,9 +49,10 @@ function adminPage(me: { username: string; owner: boolean }, online: Set<string>
         <input name="email" placeholder="friend's email (optional)"/>
         <input name="suggested_username" placeholder="suggested username (optional)"/>
         ${me.owner ? `<select name="role"><option value="user">user</option><option value="admin">admin</option></select>` : ""}
+        <label class="hint" style="display:flex;align-items:center;gap:.35rem;white-space:nowrap"><input type="checkbox" name="send_email" value="1"/> email it to them</label>
         <button class="btn-primary">Create invite link</button>
       </form>
-      <p class="hint" style="margin:.5rem 0 0">Share the generated link; they pick a username + password and they're in.</p>
+      <p class="hint" style="margin:.5rem 0 0">Share the generated link; they pick a username + password and they're in. Tick "email it to them" (needs an email) to have us send the invite for you.</p>
     </div>
     ${invites.length ? `<table><thead><tr><th>Invite</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>${inviteRows}</tbody></table>` : '<p class="hint">No invites yet.</p>'}
 

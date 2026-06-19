@@ -1,10 +1,11 @@
 import type { Hono, Context } from "hono";
 import { randomBytes, randomUUID } from "node:crypto";
-import { db, addAllow, resolveEmailLogin, sanitizeUsername } from "./db.ts";
+import { db, addAllow, resolveEmailLogin, sanitizeUsername, createToken } from "./db.ts";
 import { config } from "./config.ts";
 import { currentSession } from "./session.ts";
 import { signSession } from "./jwt.ts";
 import { setSessionCookie, clientIp, rateLimited } from "./session.ts";
+import { sendInvite, sendVerifyEmail } from "./mailer.ts";
 
 const now = () => Math.floor(Date.now() / 1000);
 const OWNER_EMAIL = (config.adminEmails[0] || "").toLowerCase();
@@ -84,6 +85,14 @@ export function mountInvites(app: Hono): void {
       [randomUUID(), code, email, suggested, role, adm.sub, now(), now() + 14 * 86400],
     );
     const link = `${config.publicBaseUrl}/invite/${code}`;
+
+    // Optionally email the link straight to the invitee (only if an email was given).
+    if (email && String(form.send_email ?? "") === "1") {
+      const inviter = (db.query("SELECT username FROM users WHERE id = ?").get(adm.sub) as { username: string } | null)?.username;
+      const res = await sendInvite(email, link, { inviter, role });
+      const where = res.ok ? "Invite emailed to " + email + ". " : "Could not email it (" + (res.error ?? "error") + "); share the link manually. ";
+      return c.redirect("/admin?msg=" + encodeURIComponent(where + "Link (valid 14 days): " + link));
+    }
     return c.redirect("/admin?msg=" + encodeURIComponent("Invite link (valid 14 days): " + link));
   });
 
@@ -138,6 +147,12 @@ export function mountInvites(app: Hono): void {
     if ("error" in res) return c.html(signupPage(code, inv, "Could not create account (" + res.error + ")."));
     if (inv.role === "admin") db.run("UPDATE users SET is_admin = 1 WHERE id = ?", [res.user.id]);
     db.run("UPDATE invites SET status='accepted', accepted_user_id=?, accepted_at=? WHERE id=?", [res.user.id, now(), inv.id]);
+
+    // New accounts start unverified (soft). Nudge them to confirm; non-blocking.
+    try {
+      const vraw = createToken(res.user.id, "verify_email", 24 * 3600);
+      void sendVerifyEmail(email, `${config.publicBaseUrl}/verify/${vraw}`);
+    } catch { /* email is best-effort; never block signup */ }
 
     const token = await signSession({ sub: res.user.id, username: res.user.username, provider: "email", admin: inv.role === "admin" || !!res.user.is_admin });
     setSessionCookie(c, token);
