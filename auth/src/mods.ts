@@ -41,22 +41,20 @@ function guns(): Gun[] {
   return cache.guns;
 }
 
-function modsPage(o: { username: string; admin: boolean; online: boolean; list: Gun[]; msg?: string; err?: string }): string {
+function modsPage(o: { username: string; admin: boolean; list: Gun[]; msg?: string; err?: string }): string {
   const rows = o.list.map((g) =>
     `<div class="world gun-row" data-q="${esc((g.label + " " + g.id).toLowerCase())}" style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap">
        <div><b>${esc(g.label)}</b> <span class="hint">${esc(g.id)}${g.ammo ? " &middot; ammo: " + esc(g.ammo) : ""}</span></div>
        <form method="post" action="/mods/give" style="margin:0">
          <input type="hidden" name="gun" value="${esc(g.id)}"/>
-         <button class="btn-primary"${o.online ? "" : " disabled title=\"Join the game first\""}>Give me this</button>
+         <button class="btn-primary">Give me this</button>
        </form>
      </div>`).join("");
 
   const body = `
     <h1>Mods</h1>
     <p class="sub">Guns, powered by QualityArmory. Grab one below, then <b>left-click to fire</b> and <b>right-click to reload</b>. You'll get a stack of ammo with each gun.</p>
-    ${o.online
-      ? ""
-      : '<div class="flash flash-err">You\'re not in the game right now. Hit <a href="/">Play</a> and join a world first &mdash; guns are handed to you in-game, so you need to be online to receive them.</div>'}
+    <div class="card hint" style="margin:.2rem 0 1rem">Guns are handed to you <b>in-game</b>, so be in a world first (hit <a href="/">Play</a> and join). If you click while offline, you'll just get a reminder. Items appear in your inventory named e.g. <b>AK47</b>; ammo is a renamed vanilla item (the AK47 uses a <b>Diamond Axe</b> "7.62x39mm").</div>
     ${o.list.length === 0
       ? '<div class="card">No guns found. Is the QualityArmory plugin installed and the server running?</div>'
       : `<input id="gunsearch" placeholder="Search ${o.list.length} guns..." oninput="filterGuns(this.value)" style="width:100%;margin:.2rem 0 1rem"/>
@@ -72,10 +70,8 @@ export function mountMods(app: Hono): void {
   app.get("/mods", async (c) => {
     const s = await currentSession(c);
     if (!s) return c.redirect("/login");
-    const online = await getPresence().catch(() => []);
-    const isOn = online.some((p) => p.name.toLowerCase() === s.username.toLowerCase());
     return c.html(modsPage({
-      username: s.username, admin: !!s.admin, online: isOn, list: guns(),
+      username: s.username, admin: !!s.admin, list: guns(),
       msg: c.req.query("msg") ?? undefined, err: c.req.query("err") ?? undefined,
     }));
   });
