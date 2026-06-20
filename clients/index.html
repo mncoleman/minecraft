@@ -53,6 +53,7 @@
     <div class="tabs">
       <a class="tab active" href="/" title="Shortcut: Y">Play</a>
       <a class="tab" href="/worlds" title="Shortcut: W">Worlds</a>
+      <a class="tab" href="/mods" title="Shortcut: M">Mods</a>
       <a class="tab" id="admin-tab" href="/admin" style="display:none" title="Shortcut: A">Admin</a>
       <a class="tab" href="/help" title="Shortcut: G">Guide</a>
       <a class="tab" href="/profile" title="Shortcut: P">Profile</a>
@@ -64,7 +65,7 @@
     <div class="card">
       <h1>⛏ Ready to play</h1>
 
-      <a class="play" id="play-primary" href="#">Play</a>
+      <a class="play" id="play-primary" href="#" title="Shortcut: Y">Play</a>
       <span class="alt" id="alt-line"></span>
 
       <div class="srv">
@@ -86,12 +87,15 @@
   <script>
     (function () {
       // Single-key nav shortcuts (ignored while typing). 'a' enabled once we know you're admin.
-      var navMap = { w: "/worlds", g: "/help", p: "/profile", y: "/" };
+      // On this page 'y' LAUNCHES the game (you're already on Play), the rest navigate.
+      var navMap = { w: "/worlds", m: "/mods", g: "/help", p: "/profile" };
       document.addEventListener("keydown", function (e) {
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         var t = e.target || {}, n = (t.tagName || "").toUpperCase();
         if (n === "INPUT" || n === "TEXTAREA" || n === "SELECT" || t.isContentEditable) return;
-        var d = navMap[(e.key || "").toLowerCase()];
+        var k = (e.key || "").toLowerCase();
+        if (k === "y") { e.preventDefault(); var p = document.getElementById("play-primary"); if (p) p.click(); return; }
+        var d = navMap[k];
         if (d) { e.preventDefault(); location.href = d; }
       });
 
