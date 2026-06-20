@@ -84,7 +84,7 @@ export function shell(o: ShellOpts): string {
   const tab = (id: string, href: string, label: string, key?: string) =>
     `<a class="tab${o.active === id ? " active" : ""}" href="${href}"${key ? ` title="Shortcut: ${key}"` : ""}>${label}</a>`;
   // Single-key nav shortcuts (ignored while typing). 'a' only for admins.
-  const navKeys: Record<string, string> = { w: "/worlds", m: "/mods", g: "/help", p: "/profile", y: "/" };
+  const navKeys: Record<string, string> = { w: "/worlds", g: "/help", p: "/profile", y: "/" };
   if (o.admin) navKeys.a = "/admin";
   return `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -94,7 +94,6 @@ export function shell(o: ShellOpts): string {
   <div class="tabs">
     ${tab("play", "/", "Play", "Y")}
     ${tab("worlds", "/worlds", "Worlds", "W")}
-    ${tab("mods", "/mods", "Mods", "M")}
     ${o.admin ? tab("admin", "/admin", "Admin", "A") : ""}
     ${tab("guide", "/help", "Guide", "G")}
     ${tab("profile", "/profile", "Profile", "P")}

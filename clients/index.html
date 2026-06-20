@@ -53,7 +53,6 @@
     <div class="tabs">
       <a class="tab active" href="/" title="Shortcut: Y">Play</a>
       <a class="tab" href="/worlds" title="Shortcut: W">Worlds</a>
-      <a class="tab" href="/mods" title="Shortcut: M">Mods</a>
       <a class="tab" id="admin-tab" href="/admin" style="display:none" title="Shortcut: A">Admin</a>
       <a class="tab" href="/help" title="Shortcut: G">Guide</a>
       <a class="tab" href="/profile" title="Shortcut: P">Profile</a>
@@ -88,7 +87,7 @@
     (function () {
       // Single-key nav shortcuts (ignored while typing). 'a' enabled once we know you're admin.
       // On this page 'y' LAUNCHES the game (you're already on Play), the rest navigate.
-      var navMap = { w: "/worlds", m: "/mods", g: "/help", p: "/profile" };
+      var navMap = { w: "/worlds", g: "/help", p: "/profile" };
       document.addEventListener("keydown", function (e) {
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         var t = e.target || {}, n = (t.tagName || "").toUpperCase();
