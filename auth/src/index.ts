@@ -13,7 +13,6 @@ import { mountWorlds } from "./worlds_admin.ts";
 import { mountInvites } from "./invites.ts";
 import { mountProfile } from "./profile.ts";
 import { mountAccount } from "./account.ts";
-import { mountMods } from "./mods.ts";
 import { reconcile, bootstrapWorlds } from "./worlds.ts";
 import { startHopAutoRoute, startLocationLogger } from "./presence.ts";
 
@@ -65,7 +64,6 @@ mountWorlds(app);
 mountInvites(app);
 mountProfile(app);
 mountAccount(app);
-mountMods(app);
 
 // Public branding asset for transactional emails (email clients fetch it with no
 // cookie, so it must be ungated). Served from the baked-in public/ dir.
