@@ -185,6 +185,11 @@ function usernameTaken(username: string): boolean {
   return !!db.query("SELECT 1 FROM users WHERE username = ? COLLATE NOCASE").get(username);
 }
 
+/** Same as usernameTaken, but ignores a given user's own row (for renames). */
+export function usernameTakenExcept(username: string, exceptUserId: string): boolean {
+  return !!db.query("SELECT 1 FROM users WHERE username = ? COLLATE NOCASE AND id != ?").get(username, exceptUserId);
+}
+
 function uniqueUsername(base: string): string {
   let u = sanitizeUsername(base);
   if (!usernameTaken(u)) return u;
@@ -328,6 +333,31 @@ export function markEmailVerified(userId: string): void {
 
 export async function setPassword(userId: string, password: string): Promise<void> {
   db.run("UPDATE users SET password_hash = ? WHERE id = ?", [await hashPassword(password), userId]);
+}
+
+/** Change a user's in-game username and update every username-keyed row in one
+ *  transaction. Worlds + shares are keyed by user_id and need no change here; the
+ *  caller re-pushes the in-game (UUID-derived) grants separately. Returns the old
+ *  and new username, or an { error } describing why the rename was rejected. */
+export function renameUser(userId: string, rawNew: string): { oldUsername: string; newUsername: string } | { error: string } {
+  const u = getUserById(userId);
+  if (!u) return { error: "User not found." };
+  const next = sanitizeUsername(rawNew);
+  // sanitizeUsername pads names shorter than 3 chars, so compare against the raw
+  // intent: reject if the cleaned input doesn't match what they typed in spirit.
+  if ((rawNew || "").replace(/[^A-Za-z0-9_]/g, "").length < 3) {
+    return { error: "Username must be at least 3 characters (letters, numbers, underscore)." };
+  }
+  if (next === u.username) return { error: "That is already your username." };
+  if (usernameTakenExcept(next, userId)) return { error: "That username is already taken." };
+  db.transaction(() => {
+    db.run("UPDATE users SET username = ? WHERE id = ?", [next, userId]);
+    db.run("UPDATE player_locations SET username = ? WHERE username = ? COLLATE NOCASE", [next, u.username]);
+    db.run("UPDATE pending_destination SET username = ? WHERE username = ? COLLATE NOCASE", [next, u.username]);
+    db.run("UPDATE allowlist SET value = ? WHERE kind = 'username' AND value = ? COLLATE NOCASE", [next, u.username]);
+    db.run("UPDATE allowlist SET username = ? WHERE username = ? COLLATE NOCASE", [next, u.username]);
+  })();
+  return { oldUsername: u.username, newUsername: next };
 }
 
 export function ownedWorldCount(userId: string): number {

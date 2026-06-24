@@ -1,9 +1,11 @@
 import type { Hono } from "hono";
-import { currentSession } from "./session.ts";
-import { db, hashPassword, createToken, emailInUse, type User } from "./db.ts";
+import { currentSession, setSessionCookie } from "./session.ts";
+import { db, hashPassword, createToken, emailInUse, renameUser, type User } from "./db.ts";
 import { config } from "./config.ts";
 import { clientIp, rateLimited } from "./session.ts";
 import { sendEmailChange, sendVerifyEmail } from "./mailer.ts";
+import { signSession } from "./jwt.ts";
+import { transferInGameIdentity } from "./worlds.ts";
 import { shell, esc } from "./layout.ts";
 
 const OWNER_EMAIL = (config.adminEmails[0] || "").toLowerCase();
@@ -29,13 +31,25 @@ function profilePage(u: User, msg?: string, err?: string): string {
     <p class="sub">Your account and in-game identity.</p>
     <div class="card">
       <table>
-        <tr><td>In-game username</td><td><b>${esc(u.username)}</b><div class="hint">Set this exact name in the client (Main menu → Edit Profile → Username) or you'll be asked to. Usernames are permanent and can't be changed.</div></td></tr>
+        <tr><td>In-game username</td><td><b>${esc(u.username)}</b><div class="hint">Set this exact name in the client (Main menu → Edit Profile → Username) or you'll be asked to. You can change it below.</div></td></tr>
         <tr><td>Email</td><td>${u.email ? esc(u.email) + verifyBadge : '<span class="hint">—</span>'}</td></tr>
         <tr><td>Role</td><td><span class="badge${role === "member" ? "" : "-ok"}">${esc(role)}</span></td></tr>
         <tr><td>Sign-in methods</td><td class="hint">${esc(links)}</td></tr>
         <tr><td>Joined</td><td class="hint">${u.created_at ? new Date(u.created_at * 1000).toISOString().slice(0, 10) : ""}</td></tr>
       </table>
     </div>
+
+    ${owner ? "" : `
+    <h2>Change username</h2>
+    <div class="card">
+      <form method="post" action="/profile/username" style="display:grid;gap:.6rem;max-width:340px"
+            onsubmit="return confirm('Change your username to what you typed?\\n\\nYour builds and world access carry over, but your in-game inventory, position and XP reset. You will be disconnected from the game and must set the new name in Edit Profile.')">
+        <input name="username" placeholder="new username (3–16, letters/numbers/_)" minlength="3" maxlength="16" autocomplete="off" required/>
+        ${u.password_hash ? '<input type="password" name="current" placeholder="current password" autocomplete="current-password" required/>' : ""}
+        <button class="btn-primary" style="justify-self:start">Change username</button>
+      </form>
+      <p class="hint" style="margin:.5rem 0 0">Your builds and access to every world carry over. Your in-game inventory, position and XP reset to a fresh start, and you'll be signed out of the game — reconnect and set the new name in <b>Edit Profile</b>.</p>
+    </div>`}
 
     <h2>Change email</h2>
     <div class="card">
@@ -88,6 +102,39 @@ export function mountProfile(app: Hono): void {
     }
     db.run("UPDATE users SET password_hash = ? WHERE id = ?", [await hashPassword(next), u.id]);
     return c.redirect("/profile?msg=" + encodeURIComponent("Password updated."));
+  });
+
+  // Self-service username change. Transfers in-game access (re-grants under the
+  // new offline UUID) and re-signs the session cookie so the new name takes effect
+  // immediately. The owner can't be renamed (their in-game op is keyed by name).
+  app.post("/profile/username", async (c) => {
+    const s = await currentSession(c);
+    if (!s) return c.redirect("/login");
+    const u = db.query("SELECT * FROM users WHERE id = ?").get(s.sub) as User | null;
+    if (!u) return c.redirect("/login");
+    if ((u.email || "").toLowerCase() === OWNER_EMAIL) {
+      return c.redirect("/profile?err=" + encodeURIComponent("The owner username can't be changed."));
+    }
+    if (rateLimited("rename:" + clientIp(c))) {
+      return c.redirect("/profile?err=" + encodeURIComponent("Too many attempts. Wait a few minutes."));
+    }
+    const form = await c.req.parseBody();
+    // If the account has a password, require it to authorize the change.
+    if (u.password_hash) {
+      const current = String(form.current ?? "");
+      if (!(await Bun.password.verify(current, u.password_hash))) {
+        return c.redirect("/profile?err=" + encodeURIComponent("Current password is incorrect."));
+      }
+    }
+    const result = renameUser(u.id, String(form.username ?? ""));
+    if ("error" in result) return c.redirect("/profile?err=" + encodeURIComponent(result.error));
+
+    await transferInGameIdentity(u.id, result.oldUsername, result.newUsername);
+    // Re-sign the session so forward_auth + the in-game JWT lock use the new name.
+    const token = await signSession({ sub: u.id, username: result.newUsername, provider: s.provider, admin: !!u.is_admin });
+    setSessionCookie(c, token);
+    return c.redirect("/profile?msg=" + encodeURIComponent(
+      `Username changed to ${result.newUsername}. Reconnect to the game and set this exact name in Edit Profile.`));
   });
 
   // Request an email change: confirm-by-link to the NEW address. Nothing changes
