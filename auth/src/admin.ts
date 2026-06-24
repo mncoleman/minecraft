@@ -42,11 +42,17 @@ function adminPage(me: { sub: string; username: string; owner: boolean }, online
     const deleteForm = canDelete
       ? `<form method="post" action="/admin/users/${u.id}/delete" style="margin:0;display:inline" onsubmit="return confirm('Delete ${esc(u.username)}? This permanently removes their account and revokes all access. They must not own any worlds. This cannot be undone.')"><button class="btn-danger">delete</button></form>`
       : "";
+    // Admins can rename any non-owner. The target keeps their worlds, shares and
+    // builds; in-game access is re-granted under the new name. They must re-login
+    // for it to take effect in their own game session (we can't rotate their cookie).
+    const renameForm = !isOwnerRow
+      ? `<form method="post" action="/admin/users/${u.id}/username" style="margin:0;display:inline-flex;gap:.3rem" onsubmit="return confirm('Rename ${esc(u.username)}? Their worlds, shares and builds carry over and in-game access is re-granted. ${esc(u.username)} must sign out and back in for it to take effect in-game.')"><input name="username" placeholder="new name" minlength="3" maxlength="16" style="width:7.5rem;padding:.3rem .5rem;font-size:.85rem" required/><button class="btn-ghost" style="padding:.3rem .55rem;font-size:.85rem">rename</button></form>`
+      : "";
     return `<tr>
       <td><span class="dot ${online.has(u.username.toLowerCase()) ? "on" : ""}"></span><b>${esc(u.username)}</b>${u.is_admin ? ' <span class="badge">admin</span>' : ""}</td>
       <td class="hint">${u.email ? esc(u.email) : "—"}</td>
       <td class="hint">${u.last_login_at ? new Date(u.last_login_at * 1000).toISOString().slice(0, 10) : "never"}</td>
-      <td style="text-align:right"><div style="display:inline-flex;gap:.4rem;justify-content:flex-end;flex-wrap:wrap">${roleForm}${deleteForm}</div></td>
+      <td style="text-align:right"><div style="display:inline-flex;gap:.4rem;justify-content:flex-end;flex-wrap:wrap;align-items:center">${renameForm}${roleForm}${deleteForm}</div></td>
     </tr>`;
   }).join("");
 

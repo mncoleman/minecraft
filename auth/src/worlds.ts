@@ -208,6 +208,37 @@ export async function unshareWorld(world: World, grantee: User): Promise<void> {
   await revokeBuild(grantee.username, world.mv_world_name);
 }
 
+/**
+ * Move all in-game access from an old username to a new one after a rename. The
+ * offline UUID derives from the username, so every WorldGuard/LuckPerms grant
+ * keyed on the OLD uuid must be revoked and re-pushed under the NEW uuid. Worlds
+ * + shares themselves are keyed by user_id and don't change; only these
+ * UUID-derived grants do. Builds (world blocks) are untouched and persist.
+ * Best-effort per command (mirrors reconcile()); a kick forces a clean reconnect.
+ */
+export async function transferInGameIdentity(userId: string, oldUsername: string, newUsername: string): Promise<void> {
+  const oldUuid = offlineUuid(oldUsername);
+  // Owned worlds: strip the old identity as owner/member/access, then re-provision
+  // the new one (provisionWorld is idempotent and re-adds owner + access).
+  for (const w of listWorldsOwnedBy(userId)) {
+    await rconAll([
+      `rg removeowner -w ${w.mv_world_name} __global__ ${oldUuid}`,
+      `rg removemember -w ${w.mv_world_name} __global__ ${oldUuid}`,
+      `lp user ${oldUuid} permission set multiverse.access.${w.mv_world_name} false`,
+    ]).catch(() => {});
+    await provisionWorld(w.mv_world_name, newUsername).catch(() => {});
+  }
+  // Shared-with worlds: revoke the old uuid's build grant, grant the new uuid's.
+  for (const w of listWorldsSharedWith(userId)) {
+    await revokeBuild(oldUsername, w.mv_world_name).catch(() => {});
+    await grantBuild(newUsername, w.mv_world_name).catch(() => {});
+  }
+  // Kick the old name so a connected player reconnects cleanly under the new
+  // identity (their re-signed JWT locks the in-game name to the new one). Harmless
+  // no-op if they're offline ("No player was found").
+  await rcon(`kick ${oldUsername} Your username changed — reconnect to continue`).catch(() => {});
+}
+
 /** Seed the existing cliff build as a world owned by the server owner (once). */
 export function bootstrapWorlds(): void {
   const ownerEmail = (process.env.ADMIN_EMAILS || "").split(",")[0].trim().toLowerCase();

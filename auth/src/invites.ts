@@ -1,12 +1,12 @@
 import type { Hono, Context } from "hono";
 import { randomBytes, randomUUID } from "node:crypto";
-import { db, addAllow, resolveEmailLogin, sanitizeUsername, createToken, getUserById, ownedWorldCount, deleteUser } from "./db.ts";
+import { db, addAllow, resolveEmailLogin, sanitizeUsername, createToken, getUserById, ownedWorldCount, deleteUser, renameUser } from "./db.ts";
 import { config } from "./config.ts";
 import { currentSession } from "./session.ts";
 import { signSession } from "./jwt.ts";
 import { setSessionCookie, clientIp, rateLimited } from "./session.ts";
 import { sendInvite, sendVerifyEmail } from "./mailer.ts";
-import { listWorldsSharedWith, revokeBuild } from "./worlds.ts";
+import { listWorldsSharedWith, revokeBuild, transferInGameIdentity } from "./worlds.ts";
 
 const now = () => Math.floor(Date.now() / 1000);
 const OWNER_EMAIL = (config.adminEmails[0] || "").toLowerCase();
@@ -114,6 +114,26 @@ export function mountInvites(app: Hono): void {
     }
     db.run("UPDATE users SET is_admin = ? WHERE id = ?", [makeAdmin ? 1 : 0, c.req.param("id")]);
     return c.redirect("/admin?msg=" + encodeURIComponent(makeAdmin ? "Promoted to admin." : "Demoted to user."));
+  });
+
+  // Rename a user (admin-only). The target keeps their worlds, shares and builds;
+  // in-game access is re-granted under the new offline UUID. We can't rotate the
+  // target's own browser cookie, so they must re-login for it to take effect in
+  // their game session. The owner is never renamable (in-game op is keyed by name).
+  app.post("/admin/users/:id/username", async (c) => {
+    const adm = await requireAdmin(c);
+    if (!adm) return c.redirect("/worlds?err=" + encodeURIComponent("Admins only."));
+    const target = getUserById(c.req.param("id"));
+    if (!target) return c.redirect("/admin?err=" + encodeURIComponent("User not found."));
+    if ((target.email || "").toLowerCase() === OWNER_EMAIL) {
+      return c.redirect("/admin?err=" + encodeURIComponent("The owner username can't be changed."));
+    }
+    const form = await c.req.parseBody();
+    const result = renameUser(target.id, String(form.username ?? ""));
+    if ("error" in result) return c.redirect("/admin?err=" + encodeURIComponent(result.error));
+    await transferInGameIdentity(target.id, result.oldUsername, result.newUsername);
+    return c.redirect("/admin?msg=" + encodeURIComponent(
+      `Renamed ${result.oldUsername} to ${result.newUsername}. They must sign out and back in for it to take effect in-game.`));
   });
 
   // Delete a user (admin-only). Guards: never the owner, never yourself, and a
