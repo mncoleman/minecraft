@@ -86,12 +86,47 @@ The shared `MC_JWT_SECRET` is read from `server/.env` (step 3). Then
 ssh -i "$KEY" ubuntu@161.153.110.196 'cd /home/ubuntu/minecraft/auth && \
   cp .env.example .env && nano .env && \
   docker build -t mc-auth:latest . && \
-  docker run -d --name mc-auth --restart unless-stopped --memory=256m \
+  docker run -d --name mc-auth --restart unless-stopped --memory=512m \
+    --network server_default \
     -p 127.0.0.1:7900:7900 --env-file .env \
-    -v mc_auth_data:/data mc-auth:latest'
+    -e RCON_HOST=mc-eagler -e RCON_PORT=25575 \
+    -e CLIENTS_DIR=/clients -e GAMEDATA_DIR=/gamedata -e PRESENCE_PORT=25580 \
+    -v mc_auth_data:/data \
+    -v /home/ubuntu/minecraft/clients:/clients \
+    -v /home/ubuntu/minecraft/server/data:/gamedata \
+    mc-auth:latest'
 ```
-`.env` holds: `MC_JWT_SECRET`, `MC_FWD_SECRET`, Telegram bot token, Google client
-id/secret, admin identity, initial allowlist.
+This is the **live** run command — keep it in sync if you change the container.
+Key points beyond the basics:
+- `--network server_default` puts mc-auth on the same Docker network as the
+  `mc-eagler` game container so `RCON_HOST=mc-eagler` resolves (the control plane
+  for world access + the Command Center).
+- `512m` memory (not 256m): headroom for the Bun runtime + RCON queue.
+- Three mounts: `mc_auth_data:/data` (SQLite user store), the read-only client at
+  `/clients` (served by mc-auth), and the game's world data at `/gamedata`
+  (`GAMEDATA_DIR`) for read access to live world state.
+- `PRESENCE_PORT=25580` is where the auth plugin's presence feed is read.
+
+`.env` holds the secrets + config: `MC_JWT_SECRET`, `RCON_PASSWORD`,
+`PUBLIC_BASE_URL`, `RESEND_API_KEY`/`RESEND_FROM`, Telegram bot token, Google
+client id/secret, `ADMIN_EMAILS`, and the initial `ALLOWLIST`. The `-e` flags
+above are also set here in practice; they're shown explicitly so the run command
+matches the live container exactly.
+
+**Redeploying** after a code change (rebuild + recreate with the same command):
+```bash
+ssh -i "$KEY" ubuntu@161.153.110.196 'cd /home/ubuntu/minecraft/auth && \
+  docker build -t mc-auth:latest . && \
+  docker run --rm mc-auth:latest bun build src/index.ts --target bun --outfile /dev/null && \
+  docker rm -f mc-auth && docker run -d --name mc-auth --restart unless-stopped --memory=512m \
+    --network server_default -p 127.0.0.1:7900:7900 --env-file .env \
+    -e RCON_HOST=mc-eagler -e RCON_PORT=25575 \
+    -e CLIENTS_DIR=/clients -e GAMEDATA_DIR=/gamedata -e PRESENCE_PORT=25580 \
+    -v mc_auth_data:/data -v /home/ubuntu/minecraft/clients:/clients \
+    -v /home/ubuntu/minecraft/server/data:/gamedata mc-auth:latest'
+```
+The `bun build … /dev/null` step validates the image (catches import/syntax
+errors) before the live container is swapped.
 
 ## 7. Caddy (the only shared-file edit — done safely)
 

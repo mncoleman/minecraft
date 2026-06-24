@@ -1,6 +1,42 @@
 import { randomUUID, createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { db, type User } from "./db.ts";
 import { rcon, rconAll, stripColor } from "./rcon.ts";
+
+// Multiverse stores per-world state (difficulty, spawn, gamemode) in worlds.yml.
+// The game's data dir is bind-mounted here so we can read live world state the
+// RCON control plane doesn't cleanly expose. GAMEDATA_DIR matches the container.
+const GAMEDATA_DIR = (process.env.GAMEDATA_DIR || "/gamedata").replace(/\/+$/, "");
+const MV_WORLDS_YML = `${GAMEDATA_DIR}/plugins/Multiverse-Core/worlds.yml`;
+
+/** Read a Multiverse world's persisted difficulty + spawn straight from
+ *  worlds.yml (the source of truth `mvm set` writes to). Used to (a) show the
+ *  real difficulty in the panel and (b) get spawn coords for an exact-teleport
+ *  fallback. Returns nulls if the file/world/fields can't be read. */
+export function readMvWorld(mv: string): { difficulty: string | null; spawn: { x: number; y: number; z: number } | null } {
+  try {
+    const lines = readFileSync(MV_WORLDS_YML, "utf8").split("\n");
+    let inWorld = false, inSpawn = false;
+    let difficulty: string | null = null;
+    let x: number | null = null, y: number | null = null, z: number | null = null;
+    for (const line of lines) {
+      const worldKey = line.match(/^  (\S+):\s*$/); // 2-space indent = a world name
+      if (worldKey) { inWorld = worldKey[1] === mv; inSpawn = false; continue; }
+      if (!inWorld) continue;
+      if (/^    spawnLocation:/.test(line)) { inSpawn = true; continue; }
+      const diff = line.match(/^    difficulty:\s*'?([A-Za-z]+)'?/);
+      if (diff) difficulty = diff[1];
+      if (/^    \S/.test(line)) inSpawn = false; // any other 4-space key ends the spawn block
+      if (inSpawn) {
+        const m = line.match(/^      (x|y|z):\s*(-?[\d.]+)/);
+        if (m) { const v = parseFloat(m[2]); if (m[1] === "x") x = v; else if (m[1] === "y") y = v; else z = v; }
+      }
+    }
+    return { difficulty, spawn: (x != null && y != null && z != null) ? { x, y, z } : null };
+  } catch {
+    return { difficulty: null, spawn: null };
+  }
+}
 
 /**
  * Offline-mode player UUID = Java's UUID.nameUUIDFromBytes("OfflinePlayer:"+name)
@@ -115,9 +151,19 @@ export async function revokeBuild(username: string, mv: string): Promise<string[
   ]);
 }
 
-/** Teleport a (currently online) player to a world. */
+/** Teleport a (currently online) player to a world. `mvtp <world>` teleports to
+ *  the world spawn via Multiverse's SafeTTeleporter, which ABORTS with "No safe
+ *  locations found!" when the spawn is unsafe (in a block / over a drop) — the
+ *  player silently never moves. Fall back to an EXACT-destination teleport
+ *  (e:world:x,y,z), which bypasses the safety scan and drops them at the spawn
+ *  coords regardless. Owners can then fix it permanently with /mvsetspawn. */
 export async function teleportTo(username: string, mv: string): Promise<string> {
-  return rcon(`mvtp ${username} ${mv}`);
+  const out = await rcon(`mvtp ${username} ${mv}`);
+  if (/no safe location/i.test(stripColor(out))) {
+    const { spawn } = readMvWorld(mv);
+    if (spawn) return rcon(`mvtp ${username} e:${mv}:${spawn.x},${spawn.y},${spawn.z}`);
+  }
+  return out;
 }
 
 /** Read a world's seed from Multiverse (used for seed-map links). null if unparseable. */
