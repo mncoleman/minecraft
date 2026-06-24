@@ -1,5 +1,5 @@
 import { randomUUID, createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, renameSync } from "node:fs";
 import { db, type User } from "./db.ts";
 import { rcon, rconAll, stripColor } from "./rcon.ts";
 
@@ -36,6 +36,59 @@ export function readMvWorld(mv: string): { difficulty: string | null; spawn: { x
   } catch {
     return { difficulty: null, spawn: null };
   }
+}
+
+/**
+ * Carry a player's saved character data from their OLD offline UUID to the NEW
+ * one after a username change. Inventory, ender chest, position, health, XP, and
+ * gamemode live in <world>/playerdata/<uuid>.dat (+ .dat_old); achievements and
+ * stats in <world>/{advancements,stats}/<uuid>.json. We scan every world folder
+ * (this server keeps one global playerdata in the main world, but per-world is
+ * handled the same way) and rename each old-UUID file to the new UUID. rename
+ * preserves the file's owner/inode (uid 1001), so no chown is needed, and only
+ * works on the same filesystem — the /gamedata bind mount is one device.
+ *
+ * The caller MUST ensure the player is offline first (a disconnect flushes their
+ * live data to the OLD .dat); transferInGameIdentity kicks + waits before this.
+ */
+export function transferPlayerData(oldUsername: string, newUsername: string): { moved: number; worlds: string[] } {
+  const oldU = offlineUuid(oldUsername);
+  const newU = offlineUuid(newUsername);
+  if (oldU === newU) return { moved: 0, worlds: [] };
+  // subfolder -> file extensions that are keyed by <uuid>
+  const kinds: Array<{ sub: string; exts: string[] }> = [
+    { sub: "playerdata", exts: [".dat", ".dat_old"] },
+    { sub: "stats", exts: [".json"] },
+    { sub: "advancements", exts: [".json"] },
+  ];
+  let worldDirs: string[];
+  try {
+    worldDirs = readdirSync(GAMEDATA_DIR, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+  } catch {
+    return { moved: 0, worlds: [] };
+  }
+  let moved = 0;
+  const touched: string[] = [];
+  for (const world of worldDirs) {
+    for (const { sub, exts } of kinds) {
+      const dir = `${GAMEDATA_DIR}/${world}/${sub}`;
+      if (!existsSync(dir)) continue;
+      for (const ext of exts) {
+        const src = `${dir}/${oldU}${ext}`;
+        const dst = `${dir}/${newU}${ext}`;
+        if (!existsSync(src)) continue;
+        try {
+          // A pre-existing target would be an orphan from a previously-deleted
+          // user who once held this name; preserve it rather than clobber.
+          if (existsSync(dst)) renameSync(dst, `${dst}.pre-rename-${Math.floor(Date.now() / 1000)}`);
+          renameSync(src, dst);
+          moved++;
+          if (!touched.includes(world)) touched.push(world);
+        } catch { /* best-effort per file */ }
+      }
+    }
+  }
+  return { moved, worlds: touched };
 }
 
 /**
@@ -262,10 +315,18 @@ export async function unshareWorld(world: World, grantee: User): Promise<void> {
  * UUID-derived grants do. Builds (world blocks) are untouched and persist.
  * Best-effort per command (mirrors reconcile()); a kick forces a clean reconnect.
  */
-export async function transferInGameIdentity(userId: string, oldUsername: string, newUsername: string): Promise<void> {
+export async function transferInGameIdentity(userId: string, oldUsername: string, newUsername: string): Promise<{ moved: number }> {
   const oldUuid = offlineUuid(oldUsername);
-  // Owned worlds: strip the old identity as owner/member/access, then re-provision
-  // the new one (provisionWorld is idempotent and re-adds owner + access).
+  // 1. Kick the old name FIRST so a connected player disconnects (which flushes
+  //    their live character data to the OLD uuid .dat) and will reconnect cleanly
+  //    under the new identity. Harmless no-op if they're offline.
+  await rcon(`kick ${oldUsername} Your username changed — reconnect to continue`).catch(() => {});
+  // 2. Let the disconnect-save settle before we move files off the old uuid.
+  await new Promise((r) => setTimeout(r, 1500));
+  // 3. Carry inventory/enderchest/position/XP/stats/advancements old uuid -> new.
+  const pd = transferPlayerData(oldUsername, newUsername);
+  // 4. Owned worlds: strip the old identity as owner/member/access, then
+  //    re-provision the new one (provisionWorld re-adds owner + access).
   for (const w of listWorldsOwnedBy(userId)) {
     await rconAll([
       `rg removeowner -w ${w.mv_world_name} __global__ ${oldUuid}`,
@@ -274,15 +335,12 @@ export async function transferInGameIdentity(userId: string, oldUsername: string
     ]).catch(() => {});
     await provisionWorld(w.mv_world_name, newUsername).catch(() => {});
   }
-  // Shared-with worlds: revoke the old uuid's build grant, grant the new uuid's.
+  // 5. Shared-with worlds: revoke the old uuid's build grant, grant the new uuid's.
   for (const w of listWorldsSharedWith(userId)) {
     await revokeBuild(oldUsername, w.mv_world_name).catch(() => {});
     await grantBuild(newUsername, w.mv_world_name).catch(() => {});
   }
-  // Kick the old name so a connected player reconnects cleanly under the new
-  // identity (their re-signed JWT locks the in-game name to the new one). Harmless
-  // no-op if they're offline ("No player was found").
-  await rcon(`kick ${oldUsername} Your username changed — reconnect to continue`).catch(() => {});
+  return { moved: pd.moved };
 }
 
 /** Seed the existing cliff build as a world owned by the server owner (once). */
