@@ -43,12 +43,12 @@ function profilePage(u: User, msg?: string, err?: string): string {
     <h2>Change username</h2>
     <div class="card">
       <form method="post" action="/profile/username" style="display:grid;gap:.6rem;max-width:340px"
-            onsubmit="return confirm('Change your username to what you typed?\\n\\nYour builds and world access carry over, but your in-game inventory, position and XP reset. You will be disconnected from the game and must set the new name in Edit Profile.')">
+            onsubmit="return confirm('Change your username to what you typed?\\n\\nEverything carries over — your builds, world access, inventory, position and XP. You will be disconnected from the game and must set the new name in Edit Profile, then reconnect.')">
         <input name="username" placeholder="new username (3–16, letters/numbers/_)" minlength="3" maxlength="16" autocomplete="off" required/>
         ${u.password_hash ? '<input type="password" name="current" placeholder="current password" autocomplete="current-password" required/>' : ""}
         <button class="btn-primary" style="justify-self:start">Change username</button>
       </form>
-      <p class="hint" style="margin:.5rem 0 0">Your builds and access to every world carry over. Your in-game inventory, position and XP reset to a fresh start, and you'll be signed out of the game — reconnect and set the new name in <b>Edit Profile</b>.</p>
+      <p class="hint" style="margin:.5rem 0 0">Everything moves with you — builds, access to every world, and your full in-game character (inventory, ender chest, position, XP). You'll be signed out of the game; reconnect and set the new name in <b>Edit Profile</b>.</p>
     </div>`}
 
     <h2>Change email</h2>
@@ -134,7 +134,7 @@ export function mountProfile(app: Hono): void {
     const token = await signSession({ sub: u.id, username: result.newUsername, provider: s.provider, admin: !!u.is_admin });
     setSessionCookie(c, token);
     return c.redirect("/profile?msg=" + encodeURIComponent(
-      `Username changed to ${result.newUsername}. Reconnect to the game and set this exact name in Edit Profile.`));
+      `Username changed to ${result.newUsername} — your builds, access and in-game character all moved with you. Reconnect to the game and set this exact name in Edit Profile.`));
   });
 
   // Request an email change: confirm-by-link to the NEW address. Nothing changes

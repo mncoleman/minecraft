@@ -46,7 +46,7 @@ function adminPage(me: { sub: string; username: string; owner: boolean }, online
     // builds; in-game access is re-granted under the new name. They must re-login
     // for it to take effect in their own game session (we can't rotate their cookie).
     const renameForm = !isOwnerRow
-      ? `<form method="post" action="/admin/users/${u.id}/username" style="margin:0;display:inline-flex;gap:.3rem" onsubmit="return confirm('Rename ${esc(u.username)}? Their worlds, shares and builds carry over and in-game access is re-granted. ${esc(u.username)} must sign out and back in for it to take effect in-game.')"><input name="username" placeholder="new name" minlength="3" maxlength="16" style="width:7.5rem;padding:.3rem .5rem;font-size:.85rem" required/><button class="btn-ghost" style="padding:.3rem .55rem;font-size:.85rem">rename</button></form>`
+      ? `<form method="post" action="/admin/users/${u.id}/username" style="margin:0;display:inline-flex;gap:.3rem" onsubmit="return confirm('Rename ${esc(u.username)}? Everything carries over — worlds, shares, builds, and their full in-game character (inventory, position, XP). ${esc(u.username)} must sign out and back in for it to take effect in-game.')"><input name="username" placeholder="new name" minlength="3" maxlength="16" style="width:7.5rem;padding:.3rem .5rem;font-size:.85rem" required/><button class="btn-ghost" style="padding:.3rem .55rem;font-size:.85rem">rename</button></form>`
       : "";
     return `<tr>
       <td><span class="dot ${online.has(u.username.toLowerCase()) ? "on" : ""}"></span><b>${esc(u.username)}</b>${u.is_admin ? ' <span class="badge">admin</span>' : ""}</td>
