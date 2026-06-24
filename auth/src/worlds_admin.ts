@@ -8,7 +8,7 @@ import {
   listAllWorlds, listWorldsOwnedBy, listWorldsSharedWith, sharesForWorld,
   getWorld, getWorldByMv, insertWorld, sanitizeWorldName,
   provisionWorld, shareWorld, unshareWorld, teleportTo, setPendingDestination,
-  getNote, saveNote, getLocation, fetchWorldSeed,
+  getNote, saveNote, getLocation, fetchWorldSeed, readMvWorld,
   recordTeleport, recentTeleports, listSavedLocations, saveLocation, updateSavedLocation, deleteSavedLocation,
 } from "./worlds.ts";
 import { getPresence, type OnlinePlayer } from "./presence.ts";
@@ -182,6 +182,7 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
   const meHere = !!(inWorld && meOn && typeof meOn.x === "number");
   const recent = recentTeleports(meCtx.sub, w.mv_world_name); // per-world only
   const saved = listSavedLocations(meCtx.sub, w.mv_world_name); // per-world only
+  const curDiff = (readMvWorld(w.mv_world_name).difficulty || "").toLowerCase(); // live, from MV worlds.yml
 
   const status = !meOn
     ? `<span class="badge" style="background:#5a2230;color:#ffb3c0">offline — hit Play to run commands</span>`
@@ -275,8 +276,8 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
       <select name="mode"><option value="creative">creative</option><option value="survival">survival</option><option value="adventure">adventure</option><option value="spectator">spectator</option></select>`)}
 
     ${card("Difficulty (this world)", `<input type="hidden" name="cmd" value="difficulty"/>
-      <select name="val"><option>peaceful</option><option>easy</option><option>normal</option><option>hard</option></select>`,
-      "Persists for this world (applies even when nobody's in it).")}
+      <select name="val">${["peaceful", "easy", "normal", "hard"].map((d) => `<option${d === curDiff ? " selected" : ""}>${d}</option>`).join("")}</select>`,
+      `Currently <b>${esc(curDiff || "unknown")}</b>. Persists for this world (applies even when nobody's in it).`)}
 
     ${card("Set time", `<input type="hidden" name="cmd" value="time"/>
       <select name="val"><option>day</option><option>noon</option><option>night</option><option>midnight</option></select>`)}
@@ -497,7 +498,7 @@ export function mountWorlds(app: Hono): void {
           } else {
             const loc = getLocation(target);
             if (!loc) return back("err=" + encodeURIComponent(`No known location for ${target} yet.`));
-            if (loc.world !== meOn.world) await rcon(`mvtp ${m.username} ${loc.world}`);
+            if (loc.world !== meOn.world) await teleportTo(m.username, loc.world);
             command = `tp ${m.username} ${loc.x} ${loc.y} ${loc.z}`;
             dest = { world: loc.world, x: loc.x, y: loc.y, z: loc.z, label: "→ " + target };
           }
@@ -507,7 +508,7 @@ export function mountWorlds(app: Hono): void {
           const world = sanitizeWorldName(String(form.world ?? ""));
           if (!world) return back("err=" + encodeURIComponent("Bad destination."));
           const x = intArg(form.x), y = intArg(form.y), z = intArg(form.z);
-          if (meOn.world !== world) await rcon(`mvtp ${m.username} ${world}`);
+          if (meOn.world !== world) await teleportTo(m.username, world);
           command = `tp ${m.username} ${x} ${y} ${z}`;
           dest = { world, x: +x, y: +y, z: +z, label: String(form.label ?? "").slice(0, 40) };
           break;
