@@ -66,6 +66,16 @@ function page(username: string, isAdmin: boolean): string {
     <h1>Server Guide</h1>
     <p class="sub">Server address (if asked): <code>wss://minecraft.mncoleman.com</code></p>
 
+    <h2>Welcome — how this server works</h2>
+    <div class="card">
+      <p style="margin:.1rem 0 .8rem">This isn't a normal Minecraft server — it runs in your browser and ties the game to your account here. Two things are different from anywhere else you've played, and getting them right makes everything else just work:</p>
+      <ul style="margin:0;padding-left:1.2rem">
+        <li style="margin:.45rem 0"><b>Set your in-game name to <code>${esc(username)}</code>.</b> Your worlds, builds and permissions are all stored against your account name. The first time you play, open <b>Edit Profile</b> on the title screen and set your username to exactly <code>${esc(username)}</code> (it's case-sensitive). If it doesn't match, the server kicks you with a reminder — that's the system protecting your stuff, not a bug.</li>
+        <li style="margin:.45rem 0"><b>Keep this panel open in a second tab.</b> The game runs in its own tab with no menus for hopping worlds, teleporting, or sharing. Those controls live <em>here</em> — on the <a href="/worlds">Worlds</a> tab (press <code>W</code>). So play in one tab, and switch to this tab whenever you want to jump to a world, go to a friend, or manage access. Both tabs share the same login.</li>
+      </ul>
+      <p class="hint" style="margin:.8rem 0 0">New to Minecraft itself? The movement, commands and tips below cover the basics, and there are links to full references at the bottom.</p>
+    </div>
+
     <h2>Movement &amp; basics</h2>
     <div class="card"><table>${cmdRows(BASICS)}</table></div>
 
