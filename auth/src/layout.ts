@@ -68,6 +68,31 @@ th{color:#8b95a3;font-size:.74rem;text-transform:uppercase;letter-spacing:.05em}
 .flash{background:#1d3a28;border:1px solid #2f6f4f;color:#cdeede;padding:.55rem .85rem;border-radius:9px;margin:.6rem 0;word-break:break-word}
 .flash-err{background:#3a1d24;border:1px solid #6b2c39;color:#ffb3c0}
 .world{background:#14171d;border:1px solid #232a35;border-radius:12px;padding:.9rem 1rem;margin:.55rem 0}
+/* wider container for dense admin tables (desktop) */
+.wrap.wide{max-width:1120px}
+.nowrap{white-space:nowrap}
+/* invite-status filter tabs */
+.filters{display:flex;gap:.35rem;flex-wrap:wrap;margin:.2rem 0 .6rem}
+.filters a{padding:.3rem .65rem;border-radius:999px;border:1px solid #2c333f;color:#aeb6c2;font-size:.83rem;font-weight:600}
+.filters a:hover{background:#161b24;color:#e8eaed}
+.filters a.on{background:#21402f;border-color:#357a57;color:#dcf5e6}
+/* ── phones ─────────────────────────────────────────────────────────────── */
+@media (max-width:640px){
+  .nav{flex-wrap:wrap;gap:.35rem;padding:.55rem .8rem}
+  .brand{order:1;margin-right:auto}
+  .acct{order:2}
+  .tabs{order:3;width:100%;margin-top:.15rem}
+  .wrap{margin:1.1rem auto;padding:0 .8rem 3rem}
+  h1{font-size:1.3rem}
+  /* opt-in stacked-card tables: each row becomes a labelled card */
+  table.adm thead{position:absolute;left:-9999px}
+  table.adm tr{display:block;border:1px solid #232a35;border-radius:11px;padding:.5rem .75rem;margin:.55rem 0;background:#14171d}
+  table.adm td{display:flex;justify-content:space-between;gap:.75rem;align-items:center;border:0;padding:.3rem 0;text-align:right;word-break:break-word}
+  table.adm td::before{content:attr(data-label);color:#8b95a3;font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;text-align:left;flex:none}
+  table.adm td:empty{display:none}
+  table.adm td[data-label=""]::before{content:""}
+  table.adm td > div{flex-wrap:wrap;justify-content:flex-end}
+}
 `;
 
 interface ShellOpts {
@@ -78,6 +103,7 @@ interface ShellOpts {
   body: string;
   msg?: string | null;
   err?: string | null;
+  wide?: boolean; // use the wider container (dense admin tables)
 }
 
 export function shell(o: ShellOpts): string {
@@ -101,7 +127,7 @@ export function shell(o: ShellOpts): string {
   </div>
   <div class="acct"><span><b>${esc(o.username)}</b>${o.admin ? ' <span class="badge">admin</span>' : ""}</span><form method="post" action="/logout" style="margin:0;display:inline"><button class="tab-btn" type="submit">Log out</button></form></div>
 </nav>
-<div class="wrap">
+<div class="wrap${o.wide ? " wide" : ""}">
   ${o.msg ? `<div class="flash">${esc(o.msg)}</div>` : ""}
   ${o.err ? `<div class="flash flash-err">${esc(o.err)}</div>` : ""}
   ${o.body}
