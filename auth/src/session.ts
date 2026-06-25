@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { config } from "./config.ts";
 import { verifySession, type Session } from "./jwt.ts";
+import { getUserById } from "./db.ts";
 
 export function setSessionCookie(c: Context, token: string): void {
   setCookie(c, config.cookieName, token, {
@@ -25,7 +26,12 @@ export function getSessionToken(c: Context): string | undefined {
 
 export async function currentSession(c: Context): Promise<Session | null> {
   const tok = getSessionToken(c);
-  return tok ? await verifySession(tok) : null;
+  const s = tok ? await verifySession(tok) : null;
+  // JWTs are stateless and valid until expiry, so a deleted account would keep a
+  // working session. Invalidate centrally: if the account no longer exists, the
+  // session is dead (covers every page, the client gate, and forward_auth).
+  if (s && !getUserById(s.sub)) return null;
+  return s;
 }
 
 // ── lightweight in-memory rate limiter (per-key fixed window) ─────────────────
