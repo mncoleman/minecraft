@@ -3,7 +3,7 @@ import type { Context, Next } from "hono";
 import { stat } from "node:fs/promises";
 import { config, providersEnabled } from "./config.ts";
 import { currentSession, clearSessionCookie } from "./session.ts";
-import { bootstrapAllowlist } from "./db.ts";
+import { bootstrapAllowlist, getUserById } from "./db.ts";
 import { mountTelegram } from "./providers/telegram.ts";
 import { mountGoogle } from "./providers/google.ts";
 import { mountEmail } from "./providers/email.ts";
@@ -34,6 +34,20 @@ app.get("/auth/verify", async (c) => {
   c.header("X-Mc-User", s.username);
   c.header("X-Mc-Admin", s.admin ? "1" : "0");
   return c.text("ok", 200);
+});
+
+// ── internal: account id (JWT sub) -> CURRENT username ───────────────────────
+// Called by the in-game auth plugin so a username change takes effect in-game
+// immediately and the OLD name stops working, regardless of which (possibly
+// stale) session JWT the browser still presents. Reachable only with the shared
+// presence-token bearer; the plugin reaches this over the internal Docker net.
+app.get("/internal/username", (c) => {
+  const token = process.env.MC_PRESENCE_TOKEN || "";
+  if (!token || c.req.header("authorization") !== "Bearer " + token) return c.text("unauthorized", 401);
+  const sub = c.req.query("sub") || "";
+  const u = sub ? getUserById(sub) : null;
+  if (!u) return c.json({ username: null }, 404);
+  return c.json({ username: u.username });
 });
 
 // ── login page ───────────────────────────────────────────────────────────────

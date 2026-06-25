@@ -130,9 +130,10 @@ export function mountInvites(app: Hono): void {
   });
 
   // Rename a user (admin-only). The target keeps their worlds, shares and builds;
-  // in-game access is re-granted under the new offline UUID. We can't rotate the
-  // target's own browser cookie, so they must re-login for it to take effect in
-  // their game session. The owner is never renamable (in-game op is keyed by name).
+  // in-game access is re-granted under the new offline UUID. The target's browser
+  // cookie isn't rotated, but the in-game plugin resolves the CURRENT username
+  // from the JWT's stable account id, so the rename takes effect in-game without a
+  // re-login. The owner is never renamable (in-game op is keyed by name).
   app.post("/admin/users/:id/username", async (c) => {
     const adm = await requireAdmin(c);
     if (!adm) return c.redirect("/worlds?err=" + encodeURIComponent("Admins only."));
@@ -146,7 +147,7 @@ export function mountInvites(app: Hono): void {
     if ("error" in result) return c.redirect("/admin?err=" + encodeURIComponent(result.error));
     await transferInGameIdentity(target.id, result.oldUsername, result.newUsername);
     return c.redirect("/admin?msg=" + encodeURIComponent(
-      `Renamed ${result.oldUsername} to ${result.newUsername}. They must sign out and back in for it to take effect in-game.`));
+      `Renamed ${result.oldUsername} to ${result.newUsername}. They just set their new name in Edit Profile in-game and reconnect — no sign-out needed.`));
   });
 
   // Delete a user (admin-only). Guards: never the owner, never yourself, and a
