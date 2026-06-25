@@ -106,7 +106,21 @@ function adminPage(me: { sub: string; username: string; owner: boolean }, online
     <table class="adm"><thead><tr><th>Player</th><th>Email</th><th>Last login</th><th></th></tr></thead><tbody>${userRows}</tbody></table>
 
     <h2>All worlds (${worlds.length})</h2>
-    ${worlds.length ? worlds.map((w) => { const o = userById(w.owner_user_id); return `<div class="world"><b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">owner: ${esc(o?.username || "?")} · ${sharesForWorld(w.id).length} shared</span></div>`; }).join("") : '<p class="hint">none</p>'}
+    ${worlds.length ? worlds.map((w) => {
+      const o = userById(w.owner_user_id);
+      const opts = users.filter((u) => u.id !== w.owner_user_id).map((u) => `<option value="${esc(u.username)}">${esc(u.username)}</option>`).join("");
+      return `<div class="world">
+        <div class="row" style="justify-content:space-between;margin:0">
+          <span><b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">owner: ${esc(o?.username || "?")} · ${sharesForWorld(w.id).length} shared</span></span>
+          ${opts
+            ? `<form method="post" action="/worlds/${w.id}/reassign" class="row" style="margin:0" onsubmit="return confirm('Reassign ${esc(w.name)} to the selected user? The current owner becomes a shared build member, and you can then delete them if needed.')">
+                 <select name="username" required style="min-width:130px">${opts}</select>
+                 <button class="btn-ghost">Reassign owner</button>
+               </form>`
+            : ""}
+        </div>
+      </div>`;
+    }).join("") : '<p class="hint">none</p>'}
   `;
   return shell({ title: "Admin", active: "admin", username: me.username, admin: true, body, msg, err, wide: true });
 }

@@ -7,7 +7,7 @@ import {
   type World, type WorldNote,
   listAllWorlds, listWorldsOwnedBy, listWorldsSharedWith, sharesForWorld,
   getWorld, getWorldByMv, insertWorld, sanitizeWorldName,
-  provisionWorld, shareWorld, unshareWorld, teleportTo, setPendingDestination,
+  provisionWorld, shareWorld, unshareWorld, reassignWorldOwner, teleportTo, setPendingDestination,
   getNote, saveNote, getLocation, fetchWorldSeed, readMvWorld,
   recordTeleport, recentTeleports, listSavedLocations, saveLocation, updateSavedLocation, deleteSavedLocation,
 } from "./worlds.ts";
@@ -458,6 +458,29 @@ export function mountWorlds(app: Hono): void {
       return redirect(c, "?msg=" + encodeURIComponent(`Revoked ${grantee.username}.`));
     } catch (e: any) {
       return redirect(c, "?err=" + encodeURIComponent("Revoke failed: " + (e?.message || e)));
+    }
+  });
+
+  // Reassign a world's owner (admin only). Bypasses the per-user world cap (it's an
+  // administrative transfer). The previous owner is kept as a shared build member.
+  app.post("/worlds/:id/reassign", async (c) => {
+    const m = await me(c);
+    if (!m) return c.redirect("/login");
+    if (!m.admin) return c.redirect("/admin?err=" + encodeURIComponent("Admins only."));
+    const w = getWorld(c.req.param("id"));
+    if (!w) return c.redirect("/admin?err=" + encodeURIComponent("World not found."));
+    const form = await c.req.parseBody();
+    const newOwner = userByUsername(String(form.username ?? "").trim());
+    if (!newOwner) return c.redirect("/admin?err=" + encodeURIComponent("Pick an existing user to reassign to."));
+    if (newOwner.id === w.owner_user_id) return c.redirect("/admin?msg=" + encodeURIComponent("That user already owns this world."));
+    try {
+      await reassignWorldOwner(w, newOwner, m.sub);
+      return c.redirect("/admin?msg=" + encodeURIComponent(`'${w.name}' reassigned to ${newOwner.username}. The previous owner keeps build access as a shared member.`));
+    } catch (e: any) {
+      const msg = /UNIQUE/i.test(e?.message || "")
+        ? `${newOwner.username} already has a world named '${w.name}'. Rename one first.`
+        : (e?.message || String(e));
+      return c.redirect("/admin?err=" + encodeURIComponent("Reassign failed: " + msg));
     }
   });
 
