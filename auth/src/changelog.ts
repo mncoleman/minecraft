@@ -19,6 +19,7 @@ export const CHANGELOG: Release[] = [
       "You can now create your own world from the Worlds tab — your own private space that saves automatically as you build.",
       "New Friends tab: add friends by username, or share a friend link. Friends can see when each other are online and jump straight to one another.",
       "“Who's online” now only shows your friends and people you share a world with, so your playing time stays private.",
+      "Sharing a world is now a pick-from-a-list: choose a friend (or any player, if you're an admin) instead of typing their name.",
       "Plain-English help added throughout the panel explaining worlds, the lobby, and sharing.",
     ],
   },

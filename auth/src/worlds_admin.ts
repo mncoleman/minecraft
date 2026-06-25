@@ -13,7 +13,7 @@ import {
 } from "./worlds.ts";
 import { getPresence, type OnlinePlayer } from "./presence.ts";
 import { ownedWorldCount } from "./db.ts";
-import { visibleOnlineUsernames } from "./friends.ts";
+import { visibleOnlineUsernames, listFriends, areFriends } from "./friends.ts";
 
 function canAccess(w: World, m: { sub: string; admin: boolean }): boolean {
   if (w.owner_user_id === m.sub || m.admin) return true;
@@ -66,15 +66,36 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
       <form method="post" action="/worlds/${w.id}/hop" style="margin:0"><button class="btn-ghost">Hop in →</button></form>
     </span>`;
 
+  // Candidates the viewer may grant build access to for this world: admins/owner
+  // see all users; regular users see only their friends. Always excludes the
+  // owner and anyone already shared with.
+  const shareCandidates = (w: World): Array<{ id: string; username: string }> => {
+    const sharedIds = new Set(sharesForWorld(w.id).map((s) => s.grantee_user_id));
+    const pool = me.admin
+      ? (db.query("SELECT id, username FROM users ORDER BY username COLLATE NOCASE").all() as Array<{ id: string; username: string }>)
+      : listFriends(me.sub).map((f) => ({ id: f.id, username: f.username }));
+    return pool.filter((u) => u.id !== w.owner_user_id && !sharedIds.has(u.id));
+  };
+
+  const shareForm = (w: World) => {
+    const cands = shareCandidates(w);
+    if (!cands.length) {
+      return `<p class="hint" style="margin:.5rem 0 0">${me.admin
+        ? "No other users to grant access to yet."
+        : 'Add friends on the <a href="/friends">Friends</a> tab to share this world with them.'}</p>`;
+    }
+    return `<form method="post" action="/worlds/${w.id}/share" class="row">
+      <select name="username" required>${cands.map((u) => `<option value="${esc(u.username)}">${esc(u.username)}</option>`).join("")}</select>
+      <button class="btn-primary">Grant build access</button>
+    </form>`;
+  };
+
   const ownedBlock = (w: World) => `<div class="world">
     <div class="row" style="justify-content:space-between;margin-top:0">
       <span><b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code></span>
       ${cardLinks(w)}
     </div>
-    <form method="post" action="/worlds/${w.id}/share" class="row">
-      <input name="username" placeholder="grant build to (existing username)" required/>
-      <button class="btn-primary">Grant</button>
-    </form>
+    ${shareForm(w)}
     <table>${memberRows(w)}</table>
   </div>`;
 
@@ -395,6 +416,10 @@ export function mountWorlds(app: Hono): void {
     const grantee = userByUsername(String(form.username ?? "").trim());
     if (!grantee) return redirect(c, "?err=" + encodeURIComponent("No such user (they must already be in the system)."));
     if (grantee.id === w.owner_user_id) return redirect(c, "?msg=" + encodeURIComponent("Owner already has access."));
+    // Never trust the dropdown alone: a non-admin may only grant to their friends.
+    if (!m.admin && !areFriends(m.sub, grantee.id)) {
+      return redirect(c, "?err=" + encodeURIComponent("You can only share with your friends. Add them on the Friends tab first."));
+    }
     try {
       await shareWorld(w, grantee, m.sub);
       return redirect(c, "?msg=" + encodeURIComponent(`Granted ${grantee.username} build access to ${w.mv_world_name}.`));
