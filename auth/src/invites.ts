@@ -17,10 +17,22 @@ export interface Invite {
   created_at: number; accepted_at: number | null; expires_at: number | null;
 }
 
-export function listInvites(): Array<Invite & { inviter: string | null }> {
+export interface InviteRow extends Invite {
+  inviter: string | null;
+  accepted_username: string | null;
+  accepted_email: string | null;
+}
+export function listInvites(): InviteRow[] {
   return db.query(
-    `SELECT i.*, u.username AS inviter FROM invites i LEFT JOIN users u ON u.id = i.invited_by ORDER BY i.created_at DESC`,
-  ).all() as Array<Invite & { inviter: string | null }>;
+    `SELECT i.*,
+            u.username  AS inviter,
+            au.username AS accepted_username,
+            au.email    AS accepted_email
+       FROM invites i
+       LEFT JOIN users u  ON u.id  = i.invited_by
+       LEFT JOIN users au ON au.id = i.accepted_user_id
+      ORDER BY i.created_at DESC`,
+  ).all() as InviteRow[];
 }
 function getByCode(code: string): Invite | null {
   return db.query("SELECT * FROM invites WHERE code = ?").get(code) as Invite | null;
