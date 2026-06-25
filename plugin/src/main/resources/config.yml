@@ -20,3 +20,9 @@ lock-mode: "require"
 # from MC_PRESENCE_TOKEN env (preferred). Port is in-container only (not published).
 presence-port: 25580
 presence-token: ""
+
+# mc-auth base URL (internal Docker network) for resolving an account's CURRENT
+# username from its JWT subject, so a rename takes effect in-game immediately and
+# the old name stops working. Authenticated with the presence token. Leave blank
+# to disable (the plugin then uses the username baked in the JWT, as before).
+mc-auth-url: "http://mc-auth:7900"

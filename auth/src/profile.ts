@@ -137,7 +137,7 @@ export function mountProfile(app: Hono): void {
     const token = await signSession({ sub: u.id, username: result.newUsername, provider: s.provider, admin: !!u.is_admin });
     setSessionCookie(c, token);
     return c.redirect("/profile?msg=" + encodeURIComponent(
-      `Username changed to ${result.newUsername} — your builds, access and in-game character all moved with you. Reconnect to the game and set this exact name in Edit Profile.`));
+      `Username changed to ${result.newUsername} — your builds, access and in-game character all moved with you. In the game, set this exact name in Edit Profile, then reconnect.`));
   });
 
   // Request an email change: confirm-by-link to the NEW address. Nothing changes

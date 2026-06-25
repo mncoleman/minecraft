@@ -21,9 +21,12 @@ import java.util.logging.Logger;
  *
  * lock-mode = require (default):
  *   1. AuthCheckRequiredEvent: no valid JWT -> kick. Valid JWT -> the typed
- *      username MUST equal the JWT username (the offline UUID derives from the
- *      typed/INIT name and is NOT re-derived from setProfileUsername on Bukkit,
- *      so they must match or world data/permissions attach to the wrong UUID).
+ *      username MUST equal the account's CURRENT username. That name is resolved
+ *      from the JWT's stable sub via mc-auth (CurrentNameResolver), NOT the name
+ *      frozen in the token, so a rename takes effect immediately and the old name
+ *      stops working. (The offline UUID derives from the typed/INIT name and is
+ *      NOT re-derived from setProfileUsername on Bukkit, so they must match or
+ *      world data/permissions attach to the wrong UUID.)
  *      On match: require cookie auth so a username-setting event fires next.
  *   2. AuthCookieEvent / AuthPasswordEvent: re-validate, setProfileUsername +
  *      setLoginAllowed (or deny).
@@ -37,13 +40,15 @@ import java.util.logging.Logger;
 public final class AuthListener implements Listener {
 
     private final JwtVerifier verifier; // null => deny everyone
+    private final CurrentNameResolver resolver; // null => use the JWT's own name
     private final String cookieName;
     private final String kickMessage;
     private final boolean lockUsername; // true = require (lock), false = skip (fallback)
     private final Logger log;
 
-    public AuthListener(JwtVerifier verifier, String cookieName, String kickMessage, boolean lockUsername, Logger log) {
+    public AuthListener(JwtVerifier verifier, CurrentNameResolver resolver, String cookieName, String kickMessage, boolean lockUsername, Logger log) {
         this.verifier = verifier;
+        this.resolver = resolver;
         this.cookieName = cookieName;
         this.kickMessage = kickMessage;
         this.lockUsername = lockUsername;
@@ -121,7 +126,18 @@ public final class AuthListener implements Listener {
         if (verifier == null || cookieHeader == null) return null;
         String token = extractCookie(cookieHeader, cookieName);
         if (token == null) return null;
-        return verifier.verify(token);
+        JwtVerifier.Result r = verifier.verify(token);
+        if (r == null) return null;
+        // Map the (possibly stale) JWT name to the account's CURRENT username via
+        // its stable sub, so a rename takes effect immediately and the old name
+        // fails. Fails open to the JWT name if the lookup is unavailable.
+        if (resolver != null) {
+            String current = resolver.currentName(r.sub, r.username);
+            if (current != null && !current.equals(r.username)) {
+                return new JwtVerifier.Result(current, r.sub);
+            }
+        }
+        return r;
     }
 
     /** Parse a single cookie value out of a "k=v; k2=v2" Cookie header. */
