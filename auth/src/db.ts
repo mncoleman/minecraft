@@ -170,6 +170,23 @@ if (!columnExists("users", "email_verified")) {
   db.exec("UPDATE users SET email_verified = 1 WHERE email IS NOT NULL");
 }
 
+// teleport_history: store the teleport target's stable account id (when the
+// teleport was "to a player") so the displayed name resolves live and stays
+// correct after a rename, instead of being frozen into the label text.
+if (!columnExists("teleport_history", "target_user_id")) {
+  db.exec("ALTER TABLE teleport_history ADD COLUMN target_user_id TEXT");
+  // Best-effort backfill: link existing "→ <name>" arrow labels to a user id so
+  // old entries also become dynamic. Unmatched names keep their literal label.
+  try {
+    const rows = db.query("SELECT id, label FROM teleport_history WHERE target_user_id IS NULL AND label LIKE '→ %'").all() as Array<{ id: number; label: string }>;
+    for (const r of rows) {
+      const name = r.label.replace(/^→\s*/, "").trim();
+      const u = db.query("SELECT id FROM users WHERE username = ? COLLATE NOCASE").get(name) as { id: string } | null;
+      if (u) db.run("UPDATE teleport_history SET target_user_id = ? WHERE id = ?", [u.id, r.id]);
+    }
+  } catch { /* backfill is best-effort; never block boot */ }
+}
+
 export interface User {
   id: string;
   username: string;
@@ -387,6 +404,15 @@ export function renameUser(userId: string, rawNew: string): { oldUsername: strin
 
 export function ownedWorldCount(userId: string): number {
   return (db.query("SELECT COUNT(*) AS n FROM worlds WHERE owner_user_id = ?").get(userId) as { n: number }).n;
+}
+
+/** Count of pending incoming friend requests for a username (for the nav dot).
+ *  By username so the layout shell can call it without the user id; lives here
+ *  (not friends.ts) to avoid a layout.ts <-> friends.ts import cycle. */
+export function pendingFriendRequestCount(username: string): number {
+  const u = db.query("SELECT id FROM users WHERE username = ? COLLATE NOCASE").get(username) as { id: string } | null;
+  if (!u) return 0;
+  return (db.query("SELECT COUNT(*) AS n FROM friend_requests WHERE to_user_id = ? AND status = 'pending'").get(u.id) as { n: number }).n;
 }
 
 /** Hard-delete a user and every DB reference to them, in one transaction. The

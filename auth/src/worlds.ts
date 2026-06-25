@@ -265,11 +265,11 @@ export function getLocation(username: string): PlayerLoc | null {
 }
 
 // ── teleport history (last N the user jumped to) + saved locations ────────────
-export interface TeleportEntry { id: number; world: string; x: number; y: number; z: number; label: string | null; created_at: number }
+export interface TeleportEntry { id: number; world: string; x: number; y: number; z: number; label: string | null; target_user_id: string | null; created_at: number }
 export interface SavedLocation { id: string; world: string; x: number; y: number; z: number; name: string; created_at: number }
 
-export function recordTeleport(userId: string, world: string, x: number, y: number, z: number, label: string): void {
-  db.run("INSERT INTO teleport_history (user_id, world, x, y, z, label, created_at) VALUES (?,?,?,?,?,?,?)", [userId, world, x, y, z, label, now()]);
+export function recordTeleport(userId: string, world: string, x: number, y: number, z: number, label: string, targetUserId: string | null = null): void {
+  db.run("INSERT INTO teleport_history (user_id, world, x, y, z, label, target_user_id, created_at) VALUES (?,?,?,?,?,?,?,?)", [userId, world, x, y, z, label, targetUserId, now()]);
   // keep only the 5 most recent per user, PER WORLD
   db.run(
     `DELETE FROM teleport_history WHERE user_id = ? AND world = ? AND id NOT IN (
@@ -278,7 +278,7 @@ export function recordTeleport(userId: string, world: string, x: number, y: numb
   );
 }
 export function recentTeleports(userId: string, world: string): TeleportEntry[] {
-  return db.query("SELECT id, world, x, y, z, label, created_at FROM teleport_history WHERE user_id = ? AND world = ? ORDER BY id DESC LIMIT 5").all(userId, world) as TeleportEntry[];
+  return db.query("SELECT id, world, x, y, z, label, target_user_id, created_at FROM teleport_history WHERE user_id = ? AND world = ? ORDER BY id DESC LIMIT 5").all(userId, world) as TeleportEntry[];
 }
 export function listSavedLocations(userId: string, world: string): SavedLocation[] {
   return db.query("SELECT id, world, x, y, z, name, created_at FROM saved_locations WHERE user_id = ? AND world = ? ORDER BY name COLLATE NOCASE").all(userId, world) as SavedLocation[];

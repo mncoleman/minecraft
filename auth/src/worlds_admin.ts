@@ -260,11 +260,15 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
   const recentBlock = `
     <div class="card">
       <div style="font-weight:600;margin-bottom:.5rem">Recently teleported <span class="hint" style="font-weight:400">· ${esc(w.name)}</span></div>
-      ${recent.length ? recent.map((r) => `
+      ${recent.length ? recent.map((r) => {
+        // Player teleports store target_user_id, so resolve the CURRENT name now
+        // (stays correct after a rename); coord/custom teleports use the label.
+        const disp = r.target_user_id ? "→ " + (userById(r.target_user_id)?.username ?? "unknown") : (r.label || "");
+        return `
         <div class="row" style="justify-content:space-between;margin:.3rem 0">
-          <span>${r.label ? "<b>" + esc(r.label) + "</b> " : ""}<span class="hint">${esc(r.world)} (${r.x}, ${r.y}, ${r.z})</span></span>
-          <form method="post" action="/worlds/${w.id}/run" style="margin:0">${locFields(r.world, r.x, r.y, r.z, r.label || "")}<button class="btn-ghost">Go again →</button></form>
-        </div>`).join("") : '<p class="hint">No teleports yet — use the controls above.</p>'}
+          <span>${disp ? "<b>" + esc(disp) + "</b> " : ""}<span class="hint">${esc(r.world)} (${r.x}, ${r.y}, ${r.z})</span></span>
+          <form method="post" action="/worlds/${w.id}/run" style="margin:0">${locFields(r.world, r.x, r.y, r.z, disp)}<button class="btn-ghost">Go again →</button></form>
+        </div>`; }).join("") : '<p class="hint">No teleports yet — use the controls above.</p>'}
     </div>`;
 
   const savedRow = (s: { id: string; world: string; x: number; y: number; z: number; name: string }) => `
@@ -540,7 +544,7 @@ export function mountWorlds(app: Hono): void {
     const inWorld = meOn.world === w.mv_world_name;
 
     let command = "";
-    let dest: { world: string; x: number; y: number; z: number; label: string } | null = null;
+    let dest: { world: string; x: number; y: number; z: number; label: string; targetUserId?: string | null } | null = null;
     try {
       switch (cmd) {
         case "tp_coords": {
@@ -552,16 +556,17 @@ export function mountWorlds(app: Hono): void {
         }
         case "tp_player": {
           const target = playerArg(form.target, w);
+          const tuid = userByUsername(target)?.id ?? null; // stable id → name resolves live later
           const tOn = online.find((p) => p.name.toLowerCase() === target.toLowerCase());
           if (tOn) {
             command = `tp ${m.username} ${target}`;
-            if (typeof tOn.x === "number") dest = { world: tOn.world, x: tOn.x, y: tOn.y as number, z: tOn.z as number, label: "→ " + target };
+            if (typeof tOn.x === "number") dest = { world: tOn.world, x: tOn.x, y: tOn.y as number, z: tOn.z as number, label: "→ " + target, targetUserId: tuid };
           } else {
             const loc = getLocation(target);
             if (!loc) return back("err=" + encodeURIComponent(`No known location for ${target} yet.`));
             if (loc.world !== meOn.world) await teleportTo(m.username, loc.world);
             command = `tp ${m.username} ${loc.x} ${loc.y} ${loc.z}`;
-            dest = { world: loc.world, x: loc.x, y: loc.y, z: loc.z, label: "→ " + target };
+            dest = { world: loc.world, x: loc.x, y: loc.y, z: loc.z, label: "→ " + target, targetUserId: tuid };
           }
           break;
         }
@@ -599,7 +604,7 @@ export function mountWorlds(app: Hono): void {
     }
     try {
       const out = stripColor(await rcon(command));
-      if (dest) recordTeleport(m.sub, dest.world, dest.x, dest.y, dest.z, dest.label);
+      if (dest) recordTeleport(m.sub, dest.world, dest.x, dest.y, dest.z, dest.label, dest.targetUserId ?? null);
       return back("msg=" + encodeURIComponent(out.trim() || ("Ran: " + command)));
     } catch (e: any) {
       return back("err=" + encodeURIComponent("Command failed: " + (e?.message || e)));
