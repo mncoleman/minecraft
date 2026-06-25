@@ -34,16 +34,35 @@ const OP_CMDS: Cmd[] = [
 
 const TIPS: string[] = [
   "Your builds are saved on the server — they persist even when you log off, and other allowed players can keep building while you're away.",
-  "Best performance: use Chrome or Firefox on a computer (the fast WASM client). On Safari or iPhone, use the compatible client link on the play page.",
+  "For the smoothest game, play in Chrome or Firefox on a computer. On an iPhone, iPad, or Safari, tap the alternate Play link on the Play page. It runs a little slower but works everywhere.",
   "Your in-game username must match your account name — if you get kicked asking you to rename, set it in Main Menu → Edit Profile → Username.",
   "Press Esc → Options → Video Settings and lower Render Distance if the game feels laggy.",
   "In creative, press E and use the search box to find any block instantly. Middle-click a block in the world to copy it to your hand.",
 ];
 
+// What this version (Minecraft 1.8) does and does not include. Plain language,
+// no emojis, no em-dashes (per issue #7). Sets expectations for modern players.
+const VERSION_NOTES: string[] = [
+  "This server runs Minecraft 1.8. Anything added in later versions is not here.",
+  "There are no crossbows. The crossbow was added in a later version. For ranged attacks, craft a bow (three sticks and three string) and arrows (flint, a stick, and a feather). The bow is the only ranged weapon in this version.",
+  "There are no shields and no off-hand slot. You hold one item at a time.",
+  "There is no elytra, the glider that arrived in a later version.",
+  "Combat is the classic 1.8 style. There is no attack cooldown and no sweep attack, so clicking quickly works the way you expect. If you are used to newer Minecraft combat, this will feel different.",
+  "Many newer blocks, items, and mobs do not exist here. If you saw something in a recent version and cannot find it, it was almost certainly added after 1.8.",
+];
+
+const FAQS: { q: string; a: string }[] = [
+  { q: "I got kicked and told to rename. What do I do?", a: "Set your in-game name to exactly your account name, matching capital and lowercase letters, under Edit Profile on the title screen. This is the system protecting your worlds and builds, not a bug." },
+  { q: "How do I get my own world instead of the shared lobby?", a: "Open the Worlds tab and create a world. Your builds there save automatically." },
+  { q: "How do I let a friend build in my world?", a: "Add them on the Friends tab, then use the share control on your world (Worlds tab) to grant them build access." },
+  { q: "Why can I not craft a crossbow, a shield, or some other newer item?", a: "Because this is the 1.8 version of Minecraft, and those were added later. See the version section above for what is and is not in this version." },
+  { q: "The game feels slow. What can I do?", a: "Lower Render Distance under Options, then Video Settings, and play in a desktop browser for the best speed." },
+];
+
 const LINKS: { label: string; url: string; note: string }[] = [
   { label: "Minecraft Wiki", url: "https://minecraft.wiki", note: "Blocks, items, mobs, mechanics — the definitive reference." },
   { label: "Crafting recipes (1.8)", url: "https://minecraft.wiki/w/Crafting", note: "How to craft tools, blocks, and gear." },
-  { label: "Eaglercraft", url: "https://eaglercraft.com", note: "About the browser-based client this server uses." },
+  { label: "Eaglercraft", url: "https://eaglercraft.com", note: "About the browser-based game this server uses." },
   { label: "Beginner's guide", url: "https://minecraft.wiki/w/Tutorials/Beginner%27s_guide", note: "New to Minecraft? Start here." },
 ];
 
@@ -85,6 +104,16 @@ function page(username: string, isAdmin: boolean): string {
 
     <h2>Tips</h2>
     <div class="card"><ul style="margin:0;padding-left:1.2rem">${TIPS.map((t) => `<li style="margin:.35rem 0">${esc(t)}</li>`).join("")}</ul></div>
+
+    <h2>What this version has, and what it does not</h2>
+    <div class="card">
+      <p style="margin:.1rem 0 .7rem">This is the 1.8 version of Minecraft. It plays great, but a few things from newer versions are not here. The most common surprise is crossbows, which simply do not exist in this version.</p>
+      <ul style="margin:0;padding-left:1.2rem">${VERSION_NOTES.map((t) => `<li style="margin:.4rem 0">${esc(t)}</li>`).join("")}</ul>
+      <p class="hint" style="margin:.8rem 0 0">The references at the bottom of this page cover newer versions too, so not everything shown there will exist in this version.</p>
+    </div>
+
+    <h2>Common questions</h2>
+    <div class="card">${FAQS.map((f) => `<div style="margin:.2rem 0 .9rem"><div style="font-weight:600;margin-bottom:.2rem">${esc(f.q)}</div><div class="hint">${esc(f.a)}</div></div>`).join("")}</div>
 
     <h2>Resources</h2>
     <div class="card"><ul style="margin:0;padding-left:1.2rem">${LINKS.map(

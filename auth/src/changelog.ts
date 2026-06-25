@@ -14,6 +14,14 @@ export interface Release {
 export const CHANGELOG: Release[] = [
   {
     date: "2026-06-25",
+    title: "Clearer Guide and a new FAQ",
+    items: [
+      "The Guide now explains what this version of Minecraft (1.8) includes and what it does not, so things like crossbows not existing are no longer a mystery.",
+      "Added a short FAQ covering the questions new players ask most, and reworded help text into plainer, friendlier language.",
+    ],
+  },
+  {
+    date: "2026-06-25",
     title: "Now works on phones",
     items: [
       "The panel is mobile-friendly now: the top menu no longer overlaps itself, and admin lists reflow into tidy, readable cards on a small screen.",
