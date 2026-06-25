@@ -17,18 +17,39 @@ async function meAdmin(c: Context) {
   return { sub: s.sub, username: s.username, owner };
 }
 
-function adminPage(me: { sub: string; username: string; owner: boolean }, online: Set<string>, msg?: string, err?: string): string {
+const INVITE_FILTERS = ["pending", "accepted", "revoked", "all"] as const;
+type InviteFilter = (typeof INVITE_FILTERS)[number];
+
+function adminPage(me: { sub: string; username: string; owner: boolean }, online: Set<string>, inviteFilter: InviteFilter, msg?: string, err?: string): string {
   const users = db.query("SELECT * FROM users ORDER BY created_at").all() as User[];
   const invites = listInvites();
   const worlds = listAllWorlds();
   const userById = (id: string) => users.find((u) => u.id === id);
 
-  const inviteRows = invites.map((iv) =>
+  // Invite filter (default pending) + per-status counts for the filter tabs.
+  const counts = { pending: 0, accepted: 0, revoked: 0, all: invites.length } as Record<InviteFilter, number>;
+  for (const iv of invites) if (iv.status in counts) counts[iv.status as InviteFilter]++;
+  const shownInvites = inviteFilter === "all" ? invites : invites.filter((iv) => iv.status === inviteFilter);
+  const filterTabs = `<div class="filters">${INVITE_FILTERS.map((f) =>
+    `<a class="${f === inviteFilter ? "on" : ""}" href="/admin?invites=${f}">${f[0].toUpperCase() + f.slice(1)} (${counts[f]})</a>`).join("")}</div>`;
+
+  const acceptedWhen = (at: number | null) => (at ? new Date(at * 1000).toISOString().slice(0, 10) : "");
+  const statusCell = (iv: (typeof invites)[number]) => {
+    if (iv.status === "accepted") {
+      const who = iv.accepted_username ? esc(iv.accepted_username) : "user removed";
+      const when = acceptedWhen(iv.accepted_at);
+      return `<span class="badge badge-ok">accepted</span><div class="hint" style="margin-top:.25rem">by ${who}${when ? " · " + when : ""}</div>`;
+    }
+    if (iv.status === "revoked") return '<span class="badge" style="background:#3a2a2f;color:#e6b9c4">revoked</span>';
+    return '<span class="badge">pending</span>';
+  };
+
+  const inviteRows = shownInvites.map((iv) =>
     `<tr>
-      <td>${iv.email ? esc(iv.email) : '<span class="hint">(open link)</span>'}${iv.status === "pending" ? `<br><code style="font-size:.72rem">${esc(config.publicBaseUrl + "/invite/" + iv.code)}</code>` : ""}</td>
-      <td>${esc(iv.role)}</td>
-      <td>${iv.status === "accepted" ? '<span class="badge badge-ok">accepted</span>' : iv.status === "revoked" ? '<span class="hint">revoked</span>' : '<span class="badge">pending</span>'}</td>
-      <td style="text-align:right">${iv.status === "pending" ? `<form method="post" action="/admin/invites/${esc(iv.code)}/revoke" style="margin:0"><button class="btn-danger">revoke</button></form>` : ""}</td>
+      <td data-label="Invite">${iv.email ? esc(iv.email) : '<span class="hint">(open link)</span>'}${iv.status === "pending" ? `<br><code style="font-size:.72rem">${esc(config.publicBaseUrl + "/invite/" + iv.code)}</code>` : ""}</td>
+      <td data-label="Role">${esc(iv.role)}</td>
+      <td data-label="Status">${statusCell(iv)}</td>
+      <td data-label="" style="text-align:right">${iv.status === "pending" ? `<form method="post" action="/admin/invites/${esc(iv.code)}/revoke" style="margin:0"><button class="btn-danger">revoke</button></form>` : ""}</td>
     </tr>`).join("");
 
   const userRows = users.map((u) => {
@@ -49,10 +70,10 @@ function adminPage(me: { sub: string; username: string; owner: boolean }, online
       ? `<form method="post" action="/admin/users/${u.id}/username" style="margin:0;display:inline-flex;gap:.3rem" onsubmit="return confirm('Rename ${esc(u.username)}? Everything carries over — worlds, shares, builds, and their full in-game character (inventory, position, XP). ${esc(u.username)} must sign out and back in for it to take effect in-game.')"><input name="username" placeholder="new name" minlength="3" maxlength="16" style="width:7.5rem;padding:.3rem .5rem;font-size:.85rem" required/><button class="btn-ghost" style="padding:.3rem .55rem;font-size:.85rem">rename</button></form>`
       : "";
     return `<tr>
-      <td><span class="dot ${online.has(u.username.toLowerCase()) ? "on" : ""}"></span><b>${esc(u.username)}</b>${u.is_admin ? ' <span class="badge">admin</span>' : ""}</td>
-      <td class="hint">${u.email ? esc(u.email) : "—"}</td>
-      <td class="hint">${u.last_login_at ? new Date(u.last_login_at * 1000).toISOString().slice(0, 10) : "never"}</td>
-      <td style="text-align:right"><div style="display:inline-flex;gap:.4rem;justify-content:flex-end;flex-wrap:wrap;align-items:center">${renameForm}${roleForm}${deleteForm}</div></td>
+      <td data-label="Player"><span class="dot ${online.has(u.username.toLowerCase()) ? "on" : ""}"></span><b>${esc(u.username)}</b>${u.is_admin ? ' <span class="badge">admin</span>' : ""}</td>
+      <td data-label="Email" class="hint">${u.email ? esc(u.email) : "—"}</td>
+      <td data-label="Last login" class="hint nowrap">${u.last_login_at ? new Date(u.last_login_at * 1000).toISOString().slice(0, 10) : "never"}</td>
+      <td data-label="" style="text-align:right"><div style="display:inline-flex;gap:.4rem;justify-content:flex-end;flex-wrap:wrap;align-items:center">${renameForm}${roleForm}${deleteForm}</div></td>
     </tr>`;
   }).join("");
 
@@ -75,15 +96,19 @@ function adminPage(me: { sub: string; username: string; owner: boolean }, online
       </form>
       <p class="hint" style="margin:.7rem 0 0">Share the generated link; they pick a username + password and they're in. Turn on "Email the invite" (needs an email) to have us send it for you.</p>
     </div>
-    ${invites.length ? `<table><thead><tr><th>Invite</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>${inviteRows}</tbody></table>` : '<p class="hint">No invites yet.</p>'}
+    <h2>Invites</h2>
+    ${filterTabs}
+    ${shownInvites.length
+      ? `<table class="adm"><thead><tr><th>Invite</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>${inviteRows}</tbody></table>`
+      : `<p class="hint">No ${inviteFilter === "all" ? "" : inviteFilter + " "}invites${inviteFilter === "all" ? " yet" : ""}.</p>`}
 
     <h2>Users (${users.length})</h2>
-    <table><thead><tr><th>Player</th><th>Email</th><th>Last login</th><th></th></tr></thead><tbody>${userRows}</tbody></table>
+    <table class="adm"><thead><tr><th>Player</th><th>Email</th><th>Last login</th><th></th></tr></thead><tbody>${userRows}</tbody></table>
 
     <h2>All worlds (${worlds.length})</h2>
     ${worlds.length ? worlds.map((w) => { const o = userById(w.owner_user_id); return `<div class="world"><b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">owner: ${esc(o?.username || "?")} · ${sharesForWorld(w.id).length} shared</span></div>`; }).join("") : '<p class="hint">none</p>'}
   `;
-  return shell({ title: "Admin", active: "admin", username: me.username, admin: true, body, msg, err });
+  return shell({ title: "Admin", active: "admin", username: me.username, admin: true, body, msg, err, wide: true });
 }
 
 export function mountAdmin(app: Hono): void {
@@ -91,6 +116,8 @@ export function mountAdmin(app: Hono): void {
     const m = await meAdmin(c);
     if (!m) return c.redirect("/worlds?err=" + encodeURIComponent("Admins only."));
     const online = new Set((await getPresence()).map((p) => p.name.toLowerCase()));
-    return c.html(adminPage(m, online, c.req.query("msg"), c.req.query("err")));
+    const q = c.req.query("invites");
+    const filter: InviteFilter = (INVITE_FILTERS as readonly string[]).includes(q ?? "") ? (q as InviteFilter) : "pending";
+    return c.html(adminPage(m, online, filter, c.req.query("msg"), c.req.query("err")));
   });
 }

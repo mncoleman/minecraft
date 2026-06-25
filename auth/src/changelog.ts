@@ -14,6 +14,13 @@ export interface Release {
 export const CHANGELOG: Release[] = [
   {
     date: "2026-06-25",
+    title: "Now works on phones",
+    items: [
+      "The panel is mobile-friendly now: the top menu no longer overlaps itself, and admin lists reflow into tidy, readable cards on a small screen.",
+    ],
+  },
+  {
+    date: "2026-06-25",
     title: "Make your own worlds + add friends",
     items: [
       "You can now create your own world from the Worlds tab — your own private space that saves automatically as you build.",
