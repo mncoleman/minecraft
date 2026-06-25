@@ -20,12 +20,28 @@ player's in-game name is locked to their account.
 
 - Browser Minecraft on your own domain, behind HTTPS.
 - Invite-only access with email/password login (Google and Telegram optional).
-- A small web panel: multiple worlds, per-world build sharing, a command center
-  (teleport/gamemode/time/weather over RCON), notes, saved locations, presence
-  ("who is online"), and world uploads.
-- Account management: change email (confirm by link), password reset, and
-  transactional email via Resend.
-- Admin tools: invite links (optionally emailed), role management, user deletion.
+- A web panel for players:
+  - **Self-serve worlds** — players create their own worlds (per-user cap), and
+    share build access by picking a friend (or any user, for admins) from a
+    dropdown. Worlds can be created, registered, or uploaded as a `.zip`.
+  - **Friends** — add someone by username (emails them an accept link) or a
+    shareable friend link. "Who's online" is limited to your friends and people
+    you share a world with, so playtime stays private (admins see everyone). The
+    Friends tab shows a dot when you have pending requests.
+  - **Command center** — teleport, gamemode, time, weather, difficulty, give, and
+    saved locations / teleport history, run over RCON. World owners also get
+    op-level slash commands **scoped to their own world** (LuckPerms world
+    context, never global `/op`).
+  - **Per-world notes**, a seed map link, and a "What's new" feed on the Play page.
+- Account management: change username and email (confirm by link), password
+  reset, and transactional email via Resend.
+- Admin tools: invite links (optionally emailed), role management, user deletion
+  (which also revokes access and boots the user in-game), **world-ownership
+  reassignment**, and **world deletion** behind a type-to-confirm modal (full
+  teardown: live world, files, permissions, and DB).
+- Security: a renamed or deleted account takes effect immediately in-game (the
+  plugin resolves the current username from the account id and denies deleted
+  accounts), not just on the website.
 - Hard crash-isolation: the game runs in Docker under strict CPU/memory caps and
   binds only to loopback, so it can never take down anything else on the box.
 
