@@ -7,7 +7,7 @@ import {
   type World, type WorldNote,
   listAllWorlds, listWorldsOwnedBy, listWorldsSharedWith, sharesForWorld,
   getWorld, getWorldByMv, insertWorld, sanitizeWorldName,
-  provisionWorld, shareWorld, unshareWorld, reassignWorldOwner, teleportTo, setPendingDestination,
+  provisionWorld, shareWorld, unshareWorld, reassignWorldOwner, deleteWorld, isProtectedWorld, teleportTo, setPendingDestination,
   getNote, saveNote, getLocation, fetchWorldSeed, readMvWorld,
   recordTeleport, recentTeleports, listSavedLocations, saveLocation, updateSavedLocation, deleteSavedLocation,
 } from "./worlds.ts";
@@ -482,6 +482,31 @@ export function mountWorlds(app: Hono): void {
         : (e?.message || String(e));
       return c.redirect("/admin?err=" + encodeURIComponent("Reassign failed: " + msg));
     }
+  });
+
+  // Permanently delete a world (admin only). Type-to-confirm is enforced again
+  // server-side. Evacuates occupants to the lobby, then tears the world down.
+  app.post("/worlds/:id/delete", async (c) => {
+    const m = await me(c);
+    if (!m) return c.redirect("/login");
+    if (!m.admin) return c.redirect("/admin?err=" + encodeURIComponent("Admins only."));
+    const w = getWorld(c.req.param("id"));
+    if (!w) return c.redirect("/admin?err=" + encodeURIComponent("World not found."));
+    if (isProtectedWorld(w.mv_world_name)) return c.redirect("/admin?err=" + encodeURIComponent("That world is protected and can't be deleted."));
+    const form = await c.req.parseBody();
+    if (String(form.confirm ?? "").trim() !== w.mv_world_name) {
+      return c.redirect("/admin?err=" + encodeURIComponent("Type the exact world name to confirm deletion."));
+    }
+    // Evacuate anyone currently in the world to the lobby first (can't delete a
+    // world players are standing in).
+    try {
+      for (const p of await getPresence()) {
+        if (p.world === w.mv_world_name) await teleportTo(p.name, "world").catch(() => {});
+      }
+    } catch { /* best-effort */ }
+    const res = await deleteWorld(w);
+    if (!res.ok) return c.redirect("/admin?err=" + encodeURIComponent("Delete failed: " + res.error));
+    return c.redirect("/admin?msg=" + encodeURIComponent(`Deleted world '${w.mv_world_name}'.`));
   });
 
   // One-click hop: teleport the caller into a world they can access (must be online in-game).

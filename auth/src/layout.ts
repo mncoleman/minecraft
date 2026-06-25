@@ -79,6 +79,11 @@ th{color:#8b95a3;font-size:.74rem;text-transform:uppercase;letter-spacing:.05em}
 .flash{background:#1d3a28;border:1px solid #2f6f4f;color:#cdeede;padding:.55rem .85rem;border-radius:9px;margin:.6rem 0;word-break:break-word}
 .flash-err{background:#3a1d24;border:1px solid #6b2c39;color:#ffb3c0}
 .world{background:#14171d;border:1px solid #232a35;border-radius:12px;padding:.9rem 1rem;margin:.55rem 0}
+/* confirmation modal (type-to-confirm destructive actions) */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;place-items:center;z-index:100;padding:1rem}
+.modal-overlay.open{display:grid}
+.modal{background:#14171d;border:1px solid #2c333f;border-radius:14px;padding:1.3rem 1.4rem;max-width:430px;width:100%;box-shadow:0 24px 70px rgba(0,0,0,.6)}
+.modal h3{margin:0 0 .6rem;font-size:1.1rem}
 /* wider container for dense admin tables (desktop) */
 .wrap.wide{max-width:1120px}
 .nowrap{white-space:nowrap}
