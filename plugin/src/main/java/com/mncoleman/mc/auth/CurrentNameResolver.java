@@ -16,20 +16,31 @@ import java.util.logging.Logger;
  * Resolves an account's CURRENT username from its stable JWT subject (the account
  * id) by calling the mc-auth internal endpoint. This makes a username change take
  * effect in-game immediately and stops the OLD name from working, regardless of
- * which (possibly stale) session JWT the browser still presents — including the
- * admin-rename case, where the target's cookie is never rotated.
+ * which (possibly stale) session JWT the browser still presents.
  *
- * Fails OPEN to the name baked in the JWT, so an mc-auth hiccup never locks
- * players out. A short TTL cache absorbs reconnect spam without hammering mc-auth.
+ * Three outcomes:
+ *   - found:     lock to the resolved current username.
+ *   - deleted:   mc-auth says the account id no longer exists (404) -> DENY. A
+ *                deleted user's JWT stays cryptographically valid until expiry, so
+ *                without this they could keep playing; here we reject them.
+ *   - fail-open: mc-auth unreachable / transient error -> fall back to the JWT name
+ *                so a hiccup never locks players out. (Only a definitive 404 denies.)
+ * A short TTL cache absorbs reconnect spam.
  */
 public final class CurrentNameResolver {
+
+    public static final class Resolution {
+        public final String name;     // effective username to lock to (null when deleted)
+        public final boolean deleted; // account no longer exists -> deny
+        Resolution(String name, boolean deleted) { this.name = name; this.deleted = deleted; }
+    }
 
     private static final long TTL_MS = 10_000L;
 
     private static final class Entry {
-        final String name; // null = looked up and missing/errored
+        final Resolution res;
         final long at;
-        Entry(String name, long at) { this.name = name; this.at = at; }
+        Entry(Resolution res, long at) { this.res = res; this.at = at; }
     }
 
     private final String baseUrl; // e.g. http://mc-auth:7900
@@ -43,18 +54,18 @@ public final class CurrentNameResolver {
         this.log = log;
     }
 
-    /** Current username for {@code sub}, or {@code fallback} on any miss/error. */
-    public String currentName(String sub, String fallback) {
-        if (sub == null || sub.isEmpty()) return fallback;
+    /** Resolve {@code sub} to a {@link Resolution}; {@code fallback} is the JWT name. */
+    public Resolution resolve(String sub, String fallback) {
+        if (sub == null || sub.isEmpty()) return new Resolution(fallback, false);
         long now = System.currentTimeMillis();
         Entry e = cache.get(sub);
-        if (e != null && now - e.at < TTL_MS) return e.name != null ? e.name : fallback;
-        String name = fetch(sub);
-        cache.put(sub, new Entry(name, now)); // cache hits AND misses (brief) to avoid spam
-        return name != null ? name : fallback;
+        if (e != null && now - e.at < TTL_MS) return e.res;
+        Resolution res = fetch(sub, fallback);
+        cache.put(sub, new Entry(res, now));
+        return res;
     }
 
-    private String fetch(String sub) {
+    private Resolution fetch(String sub, String fallback) {
         HttpURLConnection con = null;
         try {
             URL u = new URL(baseUrl + "/internal/username?sub=" + URLEncoder.encode(sub, "UTF-8"));
@@ -63,17 +74,19 @@ public final class CurrentNameResolver {
             con.setConnectTimeout(1500);
             con.setReadTimeout(1500);
             con.setRequestProperty("Authorization", "Bearer " + token);
-            if (con.getResponseCode() != 200) return null;
+            int code = con.getResponseCode();
+            if (code == 404) return new Resolution(null, true);        // account deleted -> deny
+            if (code != 200) return new Resolution(fallback, false);   // transient -> fail open
             try (InputStream in = con.getInputStream()) {
                 byte[] b = in.readAllBytes();
                 JsonObject o = JsonParser.parseString(new String(b, StandardCharsets.UTF_8)).getAsJsonObject();
                 if (o.has("username") && !o.get("username").isJsonNull()) {
-                    return o.get("username").getAsString();
+                    return new Resolution(o.get("username").getAsString(), false);
                 }
-                return null;
+                return new Resolution(fallback, false); // 200 but no name (shouldn't happen) -> fail open
             }
         } catch (Exception ex) {
-            return null; // fail open
+            return new Resolution(fallback, false); // network error -> fail open
         } finally {
             if (con != null) con.disconnect();
         }
