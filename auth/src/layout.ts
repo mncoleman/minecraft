@@ -1,6 +1,8 @@
 // Shared page shell: top tab bar + consistent dark theme. Every server-rendered
 // page uses shell(); the static play client mirrors the same markup/CSS.
 
+import { pendingFriendRequestCount } from "./db.ts";
+
 export function esc(s: string): string {
   return (s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 }
@@ -72,6 +74,8 @@ th{color:#8b95a3;font-size:.74rem;text-transform:uppercase;letter-spacing:.05em}
 .badge-muted{background:#3a2a2f;color:#e6b9c4}
 .dot{display:inline-block;width:.55rem;height:.55rem;border-radius:50%;background:#3a4250;margin-right:.35rem;vertical-align:middle}
 .dot.on{background:#46d17f;box-shadow:0 0 6px #46d17f}
+@keyframes dotpulse{0%{box-shadow:0 0 0 0 rgba(70,209,127,.55)}70%{box-shadow:0 0 0 5px rgba(70,209,127,0)}100%{box-shadow:0 0 0 0 rgba(70,209,127,0)}}
+.dot.pulse{animation:dotpulse 1.5s ease-out infinite}
 .flash{background:#1d3a28;border:1px solid #2f6f4f;color:#cdeede;padding:.55rem .85rem;border-radius:9px;margin:.6rem 0;word-break:break-word}
 .flash-err{background:#3a1d24;border:1px solid #6b2c39;color:#ffb3c0}
 .world{background:#14171d;border:1px solid #232a35;border-radius:12px;padding:.9rem 1rem;margin:.55rem 0}
@@ -116,6 +120,11 @@ interface ShellOpts {
 export function shell(o: ShellOpts): string {
   const tab = (id: string, href: string, label: string, key?: string) =>
     `<a class="tab${o.active === id ? " active" : ""}" href="${href}"${key ? ` title="Shortcut: ${key}"` : ""}>${label}</a>`;
+  // Pulsing dot on the Friends tab when the viewer has pending incoming requests.
+  const friendReqs = pendingFriendRequestCount(o.username);
+  const friendsLabel = "Friends" + (friendReqs > 0
+    ? ' <span class="dot on pulse" title="You have new friend requests" style="margin:0 0 0 .35rem"></span>'
+    : "");
   // Single-key nav shortcuts (ignored while typing). 'a' only for admins.
   const navKeys: Record<string, string> = { w: "/worlds", f: "/friends", g: "/help", p: "/profile", y: "/" };
   if (o.admin) navKeys.a = "/admin";
@@ -128,7 +137,7 @@ export function shell(o: ShellOpts): string {
   <div class="tabs">
     ${tab("play", "/", "Play", "Y")}
     ${tab("worlds", "/worlds", "Worlds", "W")}
-    ${tab("friends", "/friends", "Friends", "F")}
+    ${tab("friends", "/friends", friendsLabel, "F")}
     ${o.admin ? tab("admin", "/admin", "Admin", "A") : ""}
     ${tab("guide", "/help", "Guide", "G")}
     ${tab("profile", "/profile", "Profile", "P")}
