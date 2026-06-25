@@ -1,5 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
 import { readFileSync, readdirSync, existsSync, renameSync } from "node:fs";
+import { $ } from "bun";
 import { db, type User } from "./db.ts";
 import { rcon, rconAll, stripColor } from "./rcon.ts";
 
@@ -402,6 +403,54 @@ export async function transferInGameIdentity(userId: string, oldUsername: string
     await grantBuild(newUsername, w.mv_world_name).catch(() => {});
   }
   return { moved: pd.moved };
+}
+
+// Worlds that must never be deleted: Bukkit's defaults (the shared lobby is
+// "world") and the seeded bootstrap world (which would just be re-created on the
+// next boot, causing drift).
+const PROTECTED_WORLDS = new Set(["world", "world_nether", "world_the_end", "cliffbuild"]);
+export function isProtectedWorld(mv: string): boolean { return PROTECTED_WORLDS.has(mv); }
+
+/**
+ * Admin: permanently delete a world — the live Multiverse world + its files, all
+ * LuckPerms/WorldGuard grants, and every DB row tied to it. Removes it from the
+ * SERVER first; only on success does it touch the DB, so a failed server-side
+ * delete never leaves the panel claiming success or drifting. The caller must
+ * evacuate any players first and enforce who-may-delete.
+ */
+export async function deleteWorld(world: World): Promise<{ ok: boolean; error?: string }> {
+  const mv = world.mv_world_name;
+  if (isProtectedWorld(mv) || !/^[a-z0-9_-]{1,32}$/.test(mv)) {
+    return { ok: false, error: "That world is protected or has an invalid name." };
+  }
+  // 1. Remove the live world. Multiverse's delete needs a confirm from the SAME
+  //    console sender, which RCON is — run both back to back.
+  try {
+    await rcon(`mv delete ${mv}`);
+    await rcon(`mv confirm`);
+  } catch (e: any) {
+    return { ok: false, error: "Couldn't remove the world from the server (RCON): " + (e?.message || e) };
+  }
+  // 2. Strip LuckPerms grants so nothing lingers (the WorldGuard region dies with
+  //    the world). Owner: command nodes + access; every shared member: build.
+  const owner = db.query("SELECT username FROM users WHERE id = ?").get(world.owner_user_id) as { username: string } | null;
+  if (owner) {
+    await revokeOwnerCommands(mv, owner.username).catch(() => {});
+    await rconAll([`lp user ${offlineUuid(owner.username)} permission unset multiverse.access.${mv}`]).catch(() => {});
+  }
+  for (const s of sharesForWorld(world.id)) await revokeBuild(s.username, mv).catch(() => {});
+  // 3. Force-remove any leftover world directory (Bun's $ escapes the interpolation;
+  //    mv is charset-validated above so this can't traverse).
+  await $`rm -rf ${GAMEDATA_DIR}/${mv}`.quiet().nothrow();
+  // 4. Delete every DB row for the world in one transaction.
+  db.transaction(() => {
+    db.run("DELETE FROM world_shares WHERE world_id = ?", [world.id]);
+    db.run("DELETE FROM world_notes WHERE world_id = ?", [world.id]);
+    db.run("DELETE FROM saved_locations WHERE world = ?", [mv]);
+    db.run("DELETE FROM teleport_history WHERE world = ?", [mv]);
+    db.run("DELETE FROM worlds WHERE id = ?", [world.id]);
+  })();
+  return { ok: true };
 }
 
 /** Seed the existing cliff build as a world owned by the server owner (once). */
