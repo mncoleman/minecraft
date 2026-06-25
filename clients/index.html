@@ -23,9 +23,20 @@
     .acct { display: flex; align-items: center; gap: .6rem; color: #8b95a3; font-size: .88rem; white-space: nowrap; }
     .acct b { color: #e8eaed; }
     .badge { font-size: .65rem; background: #2f4f7f; color: #dce8ff; padding: .1rem .4rem; border-radius: 5px; }
-    .main { display: grid; place-items: center; padding: 2.5rem 1.5rem 4rem; }
+    .main { display: grid; place-items: start center; padding: 2.5rem 1.5rem 4rem; }
+    .layout { display: grid; gap: 1.2rem; grid-template-columns: minmax(0, 460px); justify-content: center; align-items: start; width: 100%; }
+    @media (min-width: 900px) { .layout { grid-template-columns: 460px 320px; } }
     .card { width: 100%; max-width: 460px; background: #14171d; border: 1px solid #232a35;
       border-radius: 16px; padding: 1.9rem; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+    .news { padding: 1.4rem 1.5rem; }
+    .news h2 { font-size: 1.05rem; margin: 0 0 .3rem; letter-spacing: -.01em; }
+    .news .sub { color: #8b95a3; font-size: .82rem; margin: 0 0 1rem; }
+    .news .rel { padding: .9rem 0; border-top: 1px solid #232a35; }
+    .news .rel:first-of-type { border-top: 0; padding-top: 0; }
+    .news .rel .when { color: #8b95a3; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; }
+    .news .rel .title { font-weight: 700; margin: .15rem 0 .5rem; }
+    .news .rel ul { margin: 0; padding-left: 1.1rem; color: #c2cad6; font-size: .88rem; }
+    .news .rel li { margin: .3rem 0; }
     h1 { font-size: 1.5rem; margin: 0 0 1.2rem; letter-spacing: -.02em; }
     .play { display: flex; align-items: center; justify-content: center; gap: .55rem; width: 100%;
       padding: .95rem 1rem; border-radius: 12px; border: 1px solid #357a57; background: #2f6f4f;
@@ -53,6 +64,7 @@
     <div class="tabs">
       <a class="tab active" href="/" title="Shortcut: Y">Play</a>
       <a class="tab" href="/worlds" title="Shortcut: W">Worlds</a>
+      <a class="tab" href="/friends" title="Shortcut: F">Friends</a>
       <a class="tab" id="admin-tab" href="/admin" style="display:none" title="Shortcut: A">Admin</a>
       <a class="tab" href="/help" title="Shortcut: G">Guide</a>
       <a class="tab" href="/profile" title="Shortcut: P">Profile</a>
@@ -61,6 +73,7 @@
   </nav>
 
   <div class="main">
+   <div class="layout">
     <div class="card">
       <h1>⛏ Ready to play</h1>
 
@@ -82,13 +95,20 @@
         </div>
       </div>
     </div>
+
+    <aside class="card news" id="news" style="display:none">
+      <h2>📣 What's new</h2>
+      <p class="sub">Recent updates to the server and panel.</p>
+      <div id="news-body"></div>
+    </aside>
+   </div>
   </div>
 
   <script>
     (function () {
       // Single-key nav shortcuts (ignored while typing). 'a' enabled once we know you're admin.
       // On this page 'y' LAUNCHES the game (you're already on Play), the rest navigate.
-      var navMap = { w: "/worlds", g: "/help", p: "/profile" };
+      var navMap = { w: "/worlds", f: "/friends", g: "/help", p: "/profile" };
       document.addEventListener("keydown", function (e) {
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         var t = e.target || {}, n = (t.tagName || "").toUpperCase();
@@ -125,6 +145,21 @@
           document.getElementById("acct-name").innerHTML = "<b>" + info.u + "</b>" + (info.a ? ' <span class="badge">admin</span>' : "");
           var ign = document.getElementById("ign"); if (ign && info.u) ign.textContent = info.u;
           if (info.a) { document.getElementById("admin-tab").style.display = ""; navMap.a = "/admin"; }
+        })
+        .catch(function () {});
+
+      // What's new feed (rendered from the server-side changelog).
+      function escHtml(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]; }); }
+      fetch("/whats-new", { credentials: "same-origin" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data || !data.releases || !data.releases.length) return;
+          var html = data.releases.map(function (rel) {
+            var items = (rel.items || []).map(function (it) { return "<li>" + escHtml(it) + "</li>"; }).join("");
+            return '<div class="rel"><div class="when">' + escHtml(rel.date) + '</div><div class="title">' + escHtml(rel.title) + "</div><ul>" + items + "</ul></div>";
+          }).join("");
+          document.getElementById("news-body").innerHTML = html;
+          document.getElementById("news").style.display = "";
         })
         .catch(function () {});
 

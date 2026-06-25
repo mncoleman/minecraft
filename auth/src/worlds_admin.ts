@@ -12,6 +12,8 @@ import {
   recordTeleport, recentTeleports, listSavedLocations, saveLocation, updateSavedLocation, deleteSavedLocation,
 } from "./worlds.ts";
 import { getPresence, type OnlinePlayer } from "./presence.ts";
+import { ownedWorldCount } from "./db.ts";
+import { visibleOnlineUsernames } from "./friends.ts";
 
 function canAccess(w: World, m: { sub: string; admin: boolean }): boolean {
   if (w.owner_user_id === m.sub || m.admin) return true;
@@ -22,6 +24,8 @@ import { config } from "./config.ts";
 import { shell } from "./layout.ts";
 
 const GLOBAL_WORLD_CAP = Number(process.env.WORLD_CAP || 8);
+// How many worlds a non-admin may own. Admins are bound only by the global cap.
+const PER_USER_WORLD_CAP = Number(process.env.PER_USER_WORLD_CAP || 3);
 const OWNER_EMAIL = (config.adminEmails[0] || "").toLowerCase();
 
 function esc(s: string): string {
@@ -40,9 +44,13 @@ function mapUrl(seed: string): string {
 }
 
 // ── page ─────────────────────────────────────────────────────────────────────
-function worldsPage(me: { sub: string; username: string; admin: boolean; owner: boolean }, online: OnlinePlayer[], msg?: string, err?: string): string {
+function worldsPage(me: { sub: string; username: string; admin: boolean; owner: boolean }, onlineAll: OnlinePlayer[], msg?: string, err?: string): string {
   const owned = listWorldsOwnedBy(me.sub);
   const shared = listWorldsSharedWith(me.sub);
+  // Privacy: non-admins only see friends, world co-members, and themselves online.
+  const visible = me.admin ? null : visibleOnlineUsernames(me.sub);
+  const online = visible ? onlineAll.filter((p) => visible.has(p.name.toLowerCase())) : onlineAll;
+  const atUserCap = !me.admin && ownedWorldCount(me.sub) >= PER_USER_WORLD_CAP;
 
   const memberRows = (w: World) =>
     sharesForWorld(w.id).map((m) =>
@@ -93,23 +101,39 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
     <h1>Worlds</h1>
     <p class="sub">Having access to a world means you can build in it. Hit <b>Play</b> first (it connects you to the server), then use <b>Hop in</b> or <b>Join →</b> to teleport.</p>
 
+    <div class="card">
+      <p style="margin:.1rem 0 .6rem"><b>What's a world?</b> A world is a Minecraft map. When you first hit <b>Play</b> you land in the shared <b>lobby</b> — a common area anyone can visit. It saves, but it belongs to everyone.</p>
+      <p style="margin:0"><b>Want your own space?</b> Create a world below. It's yours, your builds there save automatically, and only you (plus anyone you grant access) can build in it.</p>
+    </div>
+
     <h2>Who's online</h2>
-    ${online.length ? `<div class="card">${online.map(onlineRow).join("")}</div>` : '<p class="hint">No one is online right now. Hit <b>Play</b> to jump on.</p>'}
+    ${online.length
+      ? `<div class="card">${online.map(onlineRow).join("")}</div>`
+      : me.admin
+        ? '<p class="hint">No one is online right now. Hit <b>Play</b> to jump on.</p>'
+        : '<p class="hint">None of your friends are online right now. You only see friends and people you share a world with here — add friends in the <a href="/friends">Friends</a> tab.</p>'}
 
     <h2>My worlds</h2>
-    ${owned.length ? owned.map(ownedBlock).join("") : '<p class="hint">You don\'t own any worlds yet.</p>'}
+    ${owned.length ? owned.map(ownedBlock).join("") : '<p class="hint">You don\'t own any worlds yet — create one below.</p>'}
 
     <h2>Shared with me</h2>
     ${shared.length ? shared.map(sharedBlock).join("") : '<p class="hint">Nothing shared with you yet.</p>'}
 
-    ${me.admin ? `
-    <h2>Create or import a world</h2>
+    <h2>Create a world</h2>
     <div class="card">
-      <form method="post" action="/worlds/create" class="row"><input name="name" placeholder="new world name (a-z, 0-9, -)" required/><button class="btn-primary">Create</button></form>
-      ${me.owner ? `<form method="post" action="/worlds/upload" enctype="multipart/form-data" class="row"><input type="file" name="world" accept=".zip" required/><input name="name" placeholder="world name"/><button class="btn-ghost">Upload .zip</button></form>` : ""}
-      <form method="post" action="/worlds/register" class="row"><input name="mv" placeholder="existing world folder (e.g. cliffbuild)" required/><input name="name" placeholder="display name"/><button class="btn-ghost">Register existing</button></form>
-      <p class="hint" style="margin:.6rem 0 0">Upload a vanilla world .zip (overworld), or manage users &amp; invites in the <a href="/admin">Admin</a> tab.</p>
-    </div>` : ""}
+      <p class="hint" style="margin:.1rem 0 .7rem">Pick a short name (letters, numbers and dashes). You'll become its owner, and you can share build access with friends from your world card above.</p>
+      ${atUserCap
+        ? `<p class="hint" style="margin:0">You've reached your limit of ${PER_USER_WORLD_CAP} worlds. Ask an admin if you need more.</p>`
+        : `<form method="post" action="/worlds/create" class="row" style="margin:0" onsubmit="var b=this.querySelector('button');if(b.disabled)return false;b.disabled=true;b.textContent='Creating…'"><input name="name" placeholder="my world name" required/><button class="btn-primary">Create</button></form>
+           ${me.admin ? "" : `<p class="hint" style="margin:.6rem 0 0">You can create up to ${PER_USER_WORLD_CAP} worlds.</p>`}`}
+      ${me.admin ? `
+      <div style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid #232a35">
+        <div class="hint" style="margin-bottom:.4rem">Admin tools</div>
+        ${me.owner ? `<form method="post" action="/worlds/upload" enctype="multipart/form-data" class="row"><input type="file" name="world" accept=".zip" required/><input name="name" placeholder="world name"/><button class="btn-ghost">Upload .zip</button></form>` : ""}
+        <form method="post" action="/worlds/register" class="row"><input name="mv" placeholder="existing world folder (e.g. cliffbuild)" required/><input name="name" placeholder="display name"/><button class="btn-ghost">Register existing</button></form>
+        <p class="hint" style="margin:.6rem 0 0">Upload a vanilla world .zip (overworld), or manage users &amp; invites in the <a href="/admin">Admin</a> tab.</p>
+      </div>` : ""}
+    </div>
   `;
   return shell({ title: "Worlds", active: "worlds", username: me.username, admin: me.admin, body, msg, err });
 }
@@ -309,13 +333,17 @@ export function mountWorlds(app: Hono): void {
   app.post("/worlds/create", async (c) => {
     const m = await me(c);
     if (!m) return c.redirect("/login");
-    if (!m.admin) return redirect(c, "?err=" + encodeURIComponent("Only admins can create worlds."));
+    // Anyone may create a world. Non-admins are bound by a per-user cap; everyone
+    // is bound by the global cap (which protects server disk).
+    if (!m.admin && ownedWorldCount(m.sub) >= PER_USER_WORLD_CAP) {
+      return redirect(c, "?err=" + encodeURIComponent(`You've reached your limit of ${PER_USER_WORLD_CAP} worlds.`));
+    }
     const form = await c.req.parseBody();
     const name = String(form.name ?? "").trim();
     const mv = sanitizeWorldName(name);
     if (mv.length < 1) return redirect(c, "?err=" + encodeURIComponent("Invalid world name."));
     if (getWorldByMv(mv)) return redirect(c, "?err=" + encodeURIComponent("A world with that name already exists."));
-    if (listAllWorlds().length >= GLOBAL_WORLD_CAP) return redirect(c, "?err=" + encodeURIComponent(`World cap reached (${GLOBAL_WORLD_CAP}).`));
+    if (listAllWorlds().length >= GLOBAL_WORLD_CAP) return redirect(c, "?err=" + encodeURIComponent(`The server is at its world limit (${GLOBAL_WORLD_CAP}). Ask an admin.`));
     try {
       const out = stripColor(await rcon(`mv create ${mv} normal`));
       if (!/complete|already/i.test(out)) {
@@ -325,7 +353,15 @@ export function mountWorlds(app: Hono): void {
       insertWorld({ id: randomUUID(), name: name || mv, mv_world_name: mv, owner_user_id: m.sub, world_type: "normal", seed: await fetchWorldSeed(mv), source: "created", status: "active" });
       return redirect(c, "?msg=" + encodeURIComponent(`World '${mv}' created.`));
     } catch (e: any) {
-      return redirect(c, "?err=" + encodeURIComponent("Create failed: " + (e?.message || e)));
+      const msg = e?.message || String(e);
+      // A UNIQUE violation here almost always means the Create button was
+      // double-submitted: the first request already made the world, and the
+      // second raced past the getWorldByMv check before that insert committed.
+      // The world the user asked for exists, so report success, not an error.
+      if (/UNIQUE constraint/i.test(msg)) {
+        return redirect(c, "?msg=" + encodeURIComponent(`World '${mv}' is ready.`));
+      }
+      return redirect(c, "?err=" + encodeURIComponent("Create failed: " + msg));
     }
   });
 
