@@ -4,7 +4,7 @@ import { db, type User } from "./db.ts";
 import { config } from "./config.ts";
 import { shell, esc } from "./layout.ts";
 import { listInvites } from "./invites.ts";
-import { listAllWorlds, sharesForWorld } from "./worlds.ts";
+import { listAllWorlds, sharesForWorld, isProtectedWorld } from "./worlds.ts";
 import { getPresence } from "./presence.ts";
 
 const OWNER_EMAIL = (config.adminEmails[0] || "").toLowerCase();
@@ -109,18 +109,56 @@ function adminPage(me: { sub: string; username: string; owner: boolean }, online
     ${worlds.length ? worlds.map((w) => {
       const o = userById(w.owner_user_id);
       const opts = users.filter((u) => u.id !== w.owner_user_id).map((u) => `<option value="${esc(u.username)}">${esc(u.username)}</option>`).join("");
+      const shared = sharesForWorld(w.id).length;
+      const del = isProtectedWorld(w.mv_world_name)
+        ? '<span class="hint" title="The lobby and seeded worlds can\'t be deleted">protected</span>'
+        : `<button type="button" class="btn-danger mc-del" data-id="${w.id}" data-name="${esc(w.name)}" data-mv="${esc(w.mv_world_name)}" data-shared="${shared}">Delete</button>`;
       return `<div class="world">
-        <div class="row" style="justify-content:space-between;margin:0">
-          <span><b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">owner: ${esc(o?.username || "?")} · ${sharesForWorld(w.id).length} shared</span></span>
-          ${opts
-            ? `<form method="post" action="/worlds/${w.id}/reassign" class="row" style="margin:0" onsubmit="return confirm('Reassign ${esc(w.name)} to the selected user? The current owner becomes a shared build member, and you can then delete them if needed.')">
-                 <select name="username" required style="min-width:130px">${opts}</select>
-                 <button class="btn-ghost">Reassign owner</button>
-               </form>`
-            : ""}
+        <div class="row" style="justify-content:space-between;margin:0;gap:.5rem">
+          <span><b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">owner: ${esc(o?.username || "?")} · ${shared} shared</span></span>
+          <span class="row" style="margin:0;gap:.4rem">
+            ${opts
+              ? `<form method="post" action="/worlds/${w.id}/reassign" class="row" style="margin:0" onsubmit="return confirm('Reassign ${esc(w.name)} to the selected user? The current owner becomes a shared build member, and you can then delete them if needed.')">
+                   <select name="username" required style="min-width:120px">${opts}</select>
+                   <button class="btn-ghost">Reassign</button>
+                 </form>`
+              : ""}
+            ${del}
+          </span>
         </div>
       </div>`;
     }).join("") : '<p class="hint">none</p>'}
+
+    <div class="modal-overlay" id="del-modal">
+      <div class="modal">
+        <h3>Delete world <span id="dm-name"></span>?</h3>
+        <p class="hint" style="margin:0 0 .7rem">This <b>permanently</b> deletes the world and <b>every build in it</b>, and removes access for the owner and everyone it's shared with (<span id="dm-shared">0</span> shared). This cannot be undone.</p>
+        <p style="margin:0 0 .35rem">Type <code id="dm-mv"></code> to confirm:</p>
+        <form method="post" id="dm-form">
+          <input id="dm-input" name="confirm" autocomplete="off" placeholder="world name" style="width:100%"/>
+          <div class="row" style="justify-content:flex-end;margin-top:.85rem">
+            <button class="btn-ghost" type="button" id="dm-cancel">Cancel</button>
+            <button class="btn-danger" id="dm-confirm" type="submit" disabled>Delete world</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <script>(function(){
+      var modal=document.getElementById("del-modal"),nameEl=document.getElementById("dm-name"),mvEl=document.getElementById("dm-mv"),
+          sharedEl=document.getElementById("dm-shared"),form=document.getElementById("dm-form"),inp=document.getElementById("dm-input"),
+          confirmBtn=document.getElementById("dm-confirm");
+      function close(){modal.classList.remove("open");}
+      document.getElementById("dm-cancel").onclick=close;
+      modal.addEventListener("click",function(e){if(e.target===modal)close();});
+      inp.addEventListener("input",function(){confirmBtn.disabled=inp.value!==mvEl.textContent;});
+      Array.prototype.forEach.call(document.querySelectorAll(".mc-del"),function(b){
+        b.onclick=function(){
+          nameEl.textContent=b.dataset.name;mvEl.textContent=b.dataset.mv;sharedEl.textContent=b.dataset.shared;
+          form.action="/worlds/"+b.dataset.id+"/delete";inp.value="";confirmBtn.disabled=true;
+          modal.classList.add("open");inp.focus();
+        };
+      });
+    })();</script>
   `;
   return shell({ title: "Admin", active: "admin", username: me.username, admin: true, body, msg, err, wide: true });
 }
