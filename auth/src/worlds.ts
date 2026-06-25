@@ -176,6 +176,28 @@ export function insertWorld(w: Omit<World, "created_at">): void {
 // + WorldGuard __global__ membership (build). Owner is added as region owner.
 // NOTE: exact 1.12.2 syntax verified against WG 6.2.2 / MV 2.5.0 / LP 5.5.55.
 
+// Op-equivalent command nodes granted to a world OWNER, scoped to that world via
+// LuckPerms world context (active only while they stand in their own world — NOT
+// global /op). Deliberately EXCLUDES anything server-wide (stop, op/deop, ban,
+// kick, whitelist, save-*, reload, and Multiverse/WorldGuard/LuckPerms admin).
+//
+// World context gates WHERE a command may RUN, not which entities it can target;
+// some vanilla commands resolve targets globally. A security review therefore
+// DROPPED the commands whose effect can reach players in OTHER worlds from the
+// owner's world: kill, clear, effect, tp, teleport (the panel already performs
+// all equivalent teleports via RCON, so no in-game grant is needed for them).
+// time/weather/gamerule/difficulty/setworldspawn/summon are world-local. The
+// remaining player-targeting ones (gamemode/give/xp/enchant) are reversible/benign
+// and accepted as a documented residual on this small, trusted, private server.
+const OWNER_CMD_NODES = [
+  "gamemode", "give", "xp", "enchant",
+  "time", "weather", "gamerule", "difficulty", "setworldspawn", "summon",
+] as const;
+
+function ownerCommandGrants(uuid: string, mv: string): string[] {
+  return OWNER_CMD_NODES.map((n) => `lp user ${uuid} permission set minecraft.command.${n} true world=${mv}`);
+}
+
 /** One-time per-world setup at create/import. __global__ auto-instantiates on flag. */
 export async function provisionWorld(mv: string, ownerUsername: string): Promise<string[]> {
   const o = offlineUuid(ownerUsername);
@@ -183,7 +205,14 @@ export async function provisionWorld(mv: string, ownerUsername: string): Promise
     `rg flag -w ${mv} __global__ passthrough deny`,   // build only for members/owners
     `rg addowner -w ${mv} __global__ ${o}`,           // owner can always build
     `lp user ${o} permission set multiverse.access.${mv} true`, // owner can enter
+    ...ownerCommandGrants(o, mv),                     // world-scoped op-like commands
   ]);
+}
+
+/** Strip a (previous) owner's world-scoped op command nodes (rename/transfer). */
+export async function revokeOwnerCommands(mv: string, ownerUsername: string): Promise<string[]> {
+  const o = offlineUuid(ownerUsername);
+  return rconAll(OWNER_CMD_NODES.map((n) => `lp user ${o} permission unset minecraft.command.${n} world=${mv}`));
 }
 
 /** Grant build access to a user in a world (entry + build). */
@@ -333,7 +362,8 @@ export async function transferInGameIdentity(userId: string, oldUsername: string
       `rg removemember -w ${w.mv_world_name} __global__ ${oldUuid}`,
       `lp user ${oldUuid} permission set multiverse.access.${w.mv_world_name} false`,
     ]).catch(() => {});
-    await provisionWorld(w.mv_world_name, newUsername).catch(() => {});
+    await revokeOwnerCommands(w.mv_world_name, oldUsername).catch(() => {}); // strip old uuid's op nodes
+    await provisionWorld(w.mv_world_name, newUsername).catch(() => {});      // re-grants under new uuid
   }
   // 5. Shared-with worlds: revoke the old uuid's build grant, grant the new uuid's.
   for (const w of listWorldsSharedWith(userId)) {
