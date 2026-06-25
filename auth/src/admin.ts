@@ -40,7 +40,7 @@ function adminPage(me: { sub: string; username: string; owner: boolean }, online
       const when = acceptedWhen(iv.accepted_at);
       return `<span class="badge badge-ok">accepted</span><div class="hint" style="margin-top:.25rem">by ${who}${when ? " · " + when : ""}</div>`;
     }
-    if (iv.status === "revoked") return '<span class="badge" style="background:#3a2a2f;color:#e6b9c4">revoked</span>';
+    if (iv.status === "revoked") return '<span class="badge badge-muted">revoked</span>';
     return '<span class="badge">pending</span>';
   };
 
@@ -70,7 +70,7 @@ function adminPage(me: { sub: string; username: string; owner: boolean }, online
       ? `<form method="post" action="/admin/users/${u.id}/username" style="margin:0;display:inline-flex;gap:.3rem" onsubmit="return confirm('Rename ${esc(u.username)}? Everything carries over — worlds, shares, builds, and their full in-game character (inventory, position, XP). ${esc(u.username)} must sign out and back in for it to take effect in-game.')"><input name="username" placeholder="new name" minlength="3" maxlength="16" style="width:7.5rem;padding:.3rem .5rem;font-size:.85rem" required/><button class="btn-ghost" style="padding:.3rem .55rem;font-size:.85rem">rename</button></form>`
       : "";
     return `<tr>
-      <td data-label="Player"><span class="dot ${online.has(u.username.toLowerCase()) ? "on" : ""}"></span><b>${esc(u.username)}</b>${u.is_admin ? ' <span class="badge">admin</span>' : ""}</td>
+      <td data-label="Player"><span class="dot ${online.has(u.username.toLowerCase()) ? "on" : ""}"></span><b>${esc(u.username)}</b>${u.is_admin ? ' <span class="badge badge-admin">admin</span>' : ""}</td>
       <td data-label="Email" class="hint">${u.email ? esc(u.email) : "—"}</td>
       <td data-label="Last login" class="hint nowrap">${u.last_login_at ? new Date(u.last_login_at * 1000).toISOString().slice(0, 10) : "never"}</td>
       <td data-label="" style="text-align:right"><div style="display:inline-flex;gap:.4rem;justify-content:flex-end;flex-wrap:wrap;align-items:center">${renameForm}${roleForm}${deleteForm}</div></td>
