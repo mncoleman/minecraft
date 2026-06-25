@@ -83,10 +83,13 @@ server/
   scripts/fetch-plugins.sh  # pulls the tested-together plugin jars
   data/                     # (created at runtime) world + plugins + configs
   README.md                 # this file
-auth/                       # mc-auth service (Bun + Hono)        [being built]
-plugin/                     # EaglerXServer JWT plugin (Java/Maven) [being built]
-clients/                    # staged WASM-GC + JS clients          [being built]
-deploy/                     # Caddy snippet + safe deploy scripts  [being built]
+auth/                       # mc-auth service (Bun + Hono): login, panel, worlds,
+                            #   friends, admin tools, RCON control plane
+plugin/                     # EaglerXServer JWT plugin (Java/Maven): the in-game
+                            #   auth boundary (resolves current username, denies
+                            #   renamed-away / deleted accounts)
+clients/                    # staged WASM-GC + JS clients + launcher page
+deploy/                     # Caddy snippet + DEPLOY.md runbook
 ```
 
 ---
