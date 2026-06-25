@@ -77,6 +77,14 @@ app.get("/email-logo.png", async (c) => {
   return new Response(f, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
 });
 
+// Favicon — ungated (the browser fetches it before/around login, so the gate
+// middleware must never block it). The apple-touch-icon reuses email-logo.png.
+app.get("/favicon.svg", async (c) => {
+  const f = Bun.file(new URL("../public/favicon.svg", import.meta.url).pathname);
+  if (!(await f.exists())) return c.text("not found", 404);
+  return new Response(f, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" } });
+});
+
 // Boot reconciler: seed + re-push all world access grants so the live server
 // self-heals. Retries a few times in case RCON isn't warm yet on cold boot.
 (async () => {

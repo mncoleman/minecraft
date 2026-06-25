@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/email-logo.png" />
   <title>Play · minecraft.mncoleman.com</title>
   <style>
     :root { color-scheme: dark; }
@@ -22,7 +24,7 @@
     .tab-btn:hover { background: #161b24; color: #e8eaed; }
     .acct { display: flex; align-items: center; gap: .6rem; color: #8b95a3; font-size: .88rem; white-space: nowrap; }
     .acct b { color: #e8eaed; }
-    .badge { font-size: .65rem; background: #2f4f7f; color: #dce8ff; padding: .1rem .4rem; border-radius: 5px; }
+    .badge { display: inline-block; font-size: .62rem; font-weight: 700; background: #234e36; color: #bff0d0; padding: .12rem .5rem; border-radius: 999px; }
     .main { display: grid; place-items: start center; padding: 2.5rem 1.5rem 4rem; }
     .layout { display: grid; gap: 1.2rem; grid-template-columns: minmax(0, 460px); justify-content: center; align-items: start; width: 100%; }
     @media (min-width: 900px) { .layout { grid-template-columns: 460px 320px; } }
@@ -56,6 +58,15 @@
     .row button:hover { background: #222834; }
     .steps { margin: .8rem 0 0; padding-left: 1.1rem; color: #9aa4b2; font-size: .86rem; }
     .steps li { margin: .15rem 0; }
+    /* phones: keep the nav from stacking in the middle (mirrors the shell pages) */
+    @media (max-width: 640px) {
+      .nav { flex-wrap: wrap; gap: .35rem; padding: .55rem .8rem; }
+      .brand { order: 1; margin-right: auto; }
+      .acct { order: 2; }
+      .tabs { order: 3; width: 100%; margin-top: .15rem; }
+      .main { padding: 1.5rem 1rem 3rem; }
+      .layout { gap: 1rem; }
+    }
   </style>
 </head>
 <body>
