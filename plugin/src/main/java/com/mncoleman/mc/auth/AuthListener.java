@@ -130,11 +130,16 @@ public final class AuthListener implements Listener {
         if (r == null) return null;
         // Map the (possibly stale) JWT name to the account's CURRENT username via
         // its stable sub, so a rename takes effect immediately and the old name
-        // fails. Fails open to the JWT name if the lookup is unavailable.
+        // fails. A deleted account (404) is DENIED; a lookup hiccup fails open to
+        // the JWT name so a transient mc-auth issue never locks players out.
         if (resolver != null) {
-            String current = resolver.currentName(r.sub, r.username);
-            if (current != null && !current.equals(r.username)) {
-                return new JwtVerifier.Result(current, r.sub);
+            CurrentNameResolver.Resolution res = resolver.resolve(r.sub, r.username);
+            if (res.deleted) {
+                log.info("[authcheck] account deleted (sub=" + r.sub + ") -> deny");
+                return null;
+            }
+            if (res.name != null && !res.name.equals(r.username)) {
+                return new JwtVerifier.Result(res.name, r.sub);
             }
         }
         return r;

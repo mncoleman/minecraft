@@ -7,6 +7,7 @@ import { signSession } from "./jwt.ts";
 import { setSessionCookie, clientIp, rateLimited } from "./session.ts";
 import { sendInvite, sendVerifyEmail } from "./mailer.ts";
 import { listWorldsSharedWith, listWorldsOwnedBy, revokeBuild, transferInGameIdentity } from "./worlds.ts";
+import { rcon } from "./rcon.ts";
 
 const now = () => Math.floor(Date.now() / 1000);
 const OWNER_EMAIL = (config.adminEmails[0] || "").toLowerCase();
@@ -174,6 +175,10 @@ export function mountInvites(app: Hono): void {
     const res = deleteUser(targetId);
     if (!res) return c.redirect("/admin?err=" + encodeURIComponent("User not found."));
     for (const w of shared) { try { await revokeBuild(res.username, w.mv_world_name); } catch { /* best-effort */ } }
+    // Boot them from the game now if they're online — their session JWT stays
+    // valid until expiry, but currentSession() + the in-game plugin now reject a
+    // deleted account, so they can't reconnect either.
+    await rcon(`kick ${res.username} Your account was removed`).catch(() => {});
     return c.redirect("/admin?msg=" + encodeURIComponent(`Deleted ${res.username} and revoked their access.`));
   });
 
