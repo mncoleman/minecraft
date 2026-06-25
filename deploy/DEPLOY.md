@@ -80,6 +80,14 @@ ssh -i "$KEY" ubuntu@161.153.110.196 'cd /home/ubuntu/minecraft/plugin && bash b
 The shared `MC_JWT_SECRET` is read from `server/.env` (step 3). Then
 `docker compose restart minecraft`.
 
+The plugin also resolves each player's **current** username from mc-auth (so a
+rename/deletion takes effect in-game immediately) via the internal endpoint
+`GET mc-auth:7900/internal/username?sub=…`, authenticated with `MC_PRESENCE_TOKEN`.
+Both `mc-auth-url` (default `http://mc-auth:7900`) and the token are already in
+place from steps 3/6, so no extra config is needed; it fails open to the JWT name
+if mc-auth is unreachable. Rebuilding the plugin requires re-running `build.sh`
+**and** `docker restart mc-eagler` (a config/secret change alone does not).
+
 ## 6. Auth service (mc-auth)
 
 ```bash
