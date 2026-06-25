@@ -8,7 +8,7 @@ import {
   listAllWorlds, listWorldsOwnedBy, listWorldsSharedWith, sharesForWorld,
   getWorld, getWorldByMv, insertWorld, sanitizeWorldName,
   provisionWorld, shareWorld, unshareWorld, reassignWorldOwner, deleteWorld, isProtectedWorld, teleportTo, setPendingDestination,
-  getNote, saveNote, getLocation, fetchWorldSeed, readMvWorld,
+  getNote, saveNote, getLocation, fetchWorldSeed, readMvWorld, liveWorldExists,
   recordTeleport, recentTeleports, listSavedLocations, saveLocation, updateSavedLocation, deleteSavedLocation,
 } from "./worlds.ts";
 import { getPresence, type OnlinePlayer } from "./presence.ts";
@@ -376,13 +376,24 @@ export function mountWorlds(app: Hono): void {
     if (getWorldByMv(mv)) return redirect(c, "?err=" + encodeURIComponent("A world with that name already exists."));
     if (listAllWorlds().length >= GLOBAL_WORLD_CAP) return redirect(c, "?err=" + encodeURIComponent(`The server is at its world limit (${GLOBAL_WORLD_CAP}). Ask an admin.`));
     try {
-      const out = stripColor(await rcon(`mv create ${mv} normal`));
-      // mv create echoes "Complete!" only on a fresh creation. Anything else
-      // (e.g. "World already exists") means we did NOT create a new world — refuse
-      // rather than provision/adopt a pre-existing folder (that's what Register is
-      // for, and it's the lobby-claim vector the reserved list above also guards).
-      if (!/complete/i.test(out)) {
-        return redirect(c, "?err=" + encodeURIComponent("Could not create that world — the name may already be in use. Try another."));
+      // World generation can take longer than the default RCON window, so give
+      // this call a generous timeout; the response carries "Complete!" on success.
+      let out = "";
+      try {
+        out = stripColor(await rcon(`mv create ${mv} normal`, 30000));
+      } catch { /* may have timed out while still generating — detect below */ }
+      // Success if Multiverse confirmed, OR the world actually exists now. A slow
+      // create whose RCON response timed out still finishes server-side: adopt it
+      // rather than orphan it (issue #31). Poll briefly for it to appear.
+      let exists = /complete/i.test(out) || liveWorldExists(mv);
+      for (let i = 0; !exists && i < 6; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        exists = liveWorldExists(mv);
+      }
+      if (!exists) {
+        // Truly didn't get created (and not a pre-existing folder we should adopt
+        // — Register is for that). Surface a clear, non-scary error.
+        return redirect(c, "?err=" + encodeURIComponent("Could not create that world right now — the name may be in use, or it's taking too long. Try a different name or try again shortly."));
       }
       await provisionWorld(mv, m.username);
       insertWorld({ id: randomUUID(), name: name || mv, mv_world_name: mv, owner_user_id: m.sub, world_type: "normal", seed: await fetchWorldSeed(mv), source: "created", status: "active" });

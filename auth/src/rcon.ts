@@ -87,8 +87,8 @@ function runOnce(command: string, timeoutMs = 5000): Promise<string> {
 // Serialize all commands through a promise chain.
 let chain: Promise<unknown> = Promise.resolve();
 
-export function rcon(command: string): Promise<string> {
-  const result = chain.then(() => runOnce(command), () => runOnce(command));
+export function rcon(command: string, timeoutMs = 5000): Promise<string> {
+  const result = chain.then(() => runOnce(command, timeoutMs), () => runOnce(command, timeoutMs));
   chain = result.catch(() => {});
   return result;
 }

@@ -249,6 +249,14 @@ export async function teleportTo(username: string, mv: string): Promise<string> 
   return out;
 }
 
+/** Does this Multiverse world actually exist on the live server yet? (a worlds.yml
+ *  entry or a saved level.dat). Used to adopt a world whose slow `mv create`
+ *  finished server-side after the RCON response timed out, instead of orphaning it. */
+export function liveWorldExists(mv: string): boolean {
+  if (readMvWorld(mv).difficulty !== null) return true;
+  return existsSync(`${GAMEDATA_DIR}/${mv}/level.dat`);
+}
+
 /** Read a world's seed from Multiverse (used for seed-map links). null if unparseable. */
 export async function fetchWorldSeed(mv: string): Promise<string | null> {
   try {
