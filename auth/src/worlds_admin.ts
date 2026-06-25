@@ -26,6 +26,11 @@ import { shell } from "./layout.ts";
 const GLOBAL_WORLD_CAP = Number(process.env.WORLD_CAP || 8);
 // How many worlds a non-admin may own. Admins are bound only by the global cap.
 const PER_USER_WORLD_CAP = Number(process.env.PER_USER_WORLD_CAP || 3);
+// Bukkit's default world folders. The shared lobby is the world named "world" and
+// is intentionally NOT in our DB, so getWorldByMv() would not catch it. Block these
+// explicitly from create/register: claiming one would hand the caller WorldGuard
+// ownership + world-scoped op commands in the shared lobby.
+const RESERVED_MV_WORLDS = new Set(["world", "world_nether", "world_the_end"]);
 const OWNER_EMAIL = (config.adminEmails[0] || "").toLowerCase();
 
 function esc(s: string): string {
@@ -367,12 +372,17 @@ export function mountWorlds(app: Hono): void {
     const name = String(form.name ?? "").trim();
     const mv = sanitizeWorldName(name);
     if (mv.length < 1) return redirect(c, "?err=" + encodeURIComponent("Invalid world name."));
+    if (RESERVED_MV_WORLDS.has(mv)) return redirect(c, "?err=" + encodeURIComponent("That world name is reserved."));
     if (getWorldByMv(mv)) return redirect(c, "?err=" + encodeURIComponent("A world with that name already exists."));
     if (listAllWorlds().length >= GLOBAL_WORLD_CAP) return redirect(c, "?err=" + encodeURIComponent(`The server is at its world limit (${GLOBAL_WORLD_CAP}). Ask an admin.`));
     try {
       const out = stripColor(await rcon(`mv create ${mv} normal`));
-      if (!/complete|already/i.test(out)) {
-        // mv create echoes "Complete!"; if not, surface it
+      // mv create echoes "Complete!" only on a fresh creation. Anything else
+      // (e.g. "World already exists") means we did NOT create a new world — refuse
+      // rather than provision/adopt a pre-existing folder (that's what Register is
+      // for, and it's the lobby-claim vector the reserved list above also guards).
+      if (!/complete/i.test(out)) {
+        return redirect(c, "?err=" + encodeURIComponent("Could not create that world — the name may already be in use. Try another."));
       }
       await provisionWorld(mv, m.username);
       insertWorld({ id: randomUUID(), name: name || mv, mv_world_name: mv, owner_user_id: m.sub, world_type: "normal", seed: await fetchWorldSeed(mv), source: "created", status: "active" });
@@ -399,6 +409,7 @@ export function mountWorlds(app: Hono): void {
     const mv = sanitizeWorldName(String(form.mv ?? ""));
     const name = String(form.name ?? "").trim() || mv;
     if (!mv) return redirect(c, "?err=" + encodeURIComponent("Invalid world name."));
+    if (RESERVED_MV_WORLDS.has(mv)) return redirect(c, "?err=" + encodeURIComponent("That world is reserved and can't be registered."));
     if (getWorldByMv(mv)) return redirect(c, "?err=" + encodeURIComponent("Already registered."));
     try {
       await provisionWorld(mv, m.username);

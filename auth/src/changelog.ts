@@ -14,6 +14,14 @@ export interface Release {
 export const CHANGELOG: Release[] = [
   {
     date: "2026-06-25",
+    title: "Run commands in your own world",
+    items: [
+      "If you own a world, you can now use game commands like /gamemode, /give, /time, /weather, /gamerule and /difficulty while you are playing in it.",
+      "These only work in worlds you own, not in the shared lobby or in other people's worlds.",
+    ],
+  },
+  {
+    date: "2026-06-25",
     title: "Clearer Guide and a new FAQ",
     items: [
       "The Guide now explains what this version of Minecraft (1.8) includes and what it does not, so things like crossbows not existing are no longer a mystery.",
