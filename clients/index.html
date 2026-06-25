@@ -25,6 +25,11 @@
     .acct { display: flex; align-items: center; gap: .6rem; color: #8b95a3; font-size: .88rem; white-space: nowrap; }
     .acct b { color: #e8eaed; }
     .badge { display: inline-block; font-size: .62rem; font-weight: 700; background: #234e36; color: #bff0d0; padding: .12rem .5rem; border-radius: 999px; }
+    /* friend-request dot on the Friends tab (matches the shared shell) */
+    .dot { display: inline-block; width: .55rem; height: .55rem; border-radius: 50%; background: #3a4250; vertical-align: middle; }
+    .dot.on { background: #46d17f; box-shadow: 0 0 6px #46d17f; }
+    @keyframes dotpulse { 0% { box-shadow: 0 0 0 0 rgba(70,209,127,.55); } 70% { box-shadow: 0 0 0 5px rgba(70,209,127,0); } 100% { box-shadow: 0 0 0 0 rgba(70,209,127,0); } }
+    .dot.pulse { animation: dotpulse 1.5s ease-out infinite; }
     .main { display: grid; place-items: start center; padding: 2.5rem 1.5rem 4rem; }
     .layout { display: grid; gap: 1.2rem; grid-template-columns: minmax(0, 460px); justify-content: center; align-items: start; width: 100%; }
     @media (min-width: 900px) { .layout { grid-template-columns: 460px 320px; } }
@@ -75,7 +80,7 @@
     <div class="tabs">
       <a class="tab active" href="/" title="Shortcut: Y">Play</a>
       <a class="tab" href="/worlds" title="Shortcut: W">Worlds</a>
-      <a class="tab" href="/friends" title="Shortcut: F">Friends</a>
+      <a class="tab" id="friends-tab" href="/friends" title="Shortcut: F">Friends</a>
       <a class="tab" id="admin-tab" href="/admin" style="display:none" title="Shortcut: A">Admin</a>
       <a class="tab" href="/help" title="Shortcut: G">Guide</a>
       <a class="tab" href="/profile" title="Shortcut: P">Profile</a>
@@ -150,12 +155,13 @@
 
       // Account info for the nav (username + admin tab).
       fetch("/auth/verify", { credentials: "same-origin" })
-        .then(function (r) { return r.ok ? { u: r.headers.get("X-Mc-User"), a: r.headers.get("X-Mc-Admin") === "1" } : null; })
+        .then(function (r) { return r.ok ? { u: r.headers.get("X-Mc-User"), a: r.headers.get("X-Mc-Admin") === "1", fr: parseInt(r.headers.get("X-Mc-Friend-Requests") || "0", 10) } : null; })
         .then(function (info) {
           if (!info) return;
           document.getElementById("acct-name").innerHTML = "<b>" + info.u + "</b>" + (info.a ? ' <span class="badge">admin</span>' : "");
           var ign = document.getElementById("ign"); if (ign && info.u) ign.textContent = info.u;
           if (info.a) { document.getElementById("admin-tab").style.display = ""; navMap.a = "/admin"; }
+          if (info.fr > 0) { var ft = document.getElementById("friends-tab"); if (ft) ft.innerHTML = 'Friends <span class="dot on pulse" title="You have new friend requests" style="margin-left:.35rem"></span>'; }
         })
         .catch(function () {});
 
