@@ -133,6 +133,31 @@ CREATE TABLE IF NOT EXISTS tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_tokens_hash ON tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_tokens_user ON tokens(user_id);
+
+-- Friends: an accepted friendship is ONE row with the pair stored ordered
+-- (user_a < user_b) so the relationship is symmetric and can't be duplicated.
+CREATE TABLE IF NOT EXISTS friendships (
+  user_a     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_b     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_a, user_b)
+);
+CREATE INDEX IF NOT EXISTS idx_friendships_b ON friendships(user_b);
+
+-- Friend requests. to_user_id NULL = an open "friend link" anyone logged-in can
+-- accept; otherwise it targets one user (and may be emailed to them). code is the
+-- unguessable token in the accept link.
+CREATE TABLE IF NOT EXISTS friend_requests (
+  id           TEXT PRIMARY KEY,
+  code         TEXT UNIQUE NOT NULL,
+  from_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  to_user_id   TEXT REFERENCES users(id) ON DELETE CASCADE,
+  status       TEXT NOT NULL DEFAULT 'pending', -- pending | accepted | declined | revoked
+  created_at   INTEGER NOT NULL,
+  expires_at   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_freq_to   ON friend_requests(to_user_id, status);
+CREATE INDEX IF NOT EXISTS idx_freq_from ON friend_requests(from_user_id, status);
 `);
 
 // ── migrations (idempotent; run on every boot, no-op once applied) ─────────────

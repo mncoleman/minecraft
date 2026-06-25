@@ -112,6 +112,15 @@ export function sendEmailChange(to: string, url: string): Promise<MailResult> {
   }));
 }
 
+export function sendFriendRequest(to: string, url: string, fromUsername: string): Promise<MailResult> {
+  return sendMail(to, `${fromUsername} wants to be your friend on Minecraft`, shell({
+    heading: "You have a friend request",
+    intro: `<b>${esc(fromUsername)}</b> wants to be your friend on the Minecraft server. Friends can see when each other are online and jump to one another in the game. Click below to accept.`,
+    cta: { label: "Accept friend request", url },
+    outro: "If you don't recognize this name, you can ignore this email — nothing happens unless you accept.",
+  }));
+}
+
 export function sendInvite(to: string, url: string, opts: { inviter?: string; role?: string } = {}): Promise<MailResult> {
   const who = opts.inviter ? `${esc(opts.inviter)} invited you` : "You have been invited";
   const asRole = opts.role === "admin" ? " as an admin" : "";
