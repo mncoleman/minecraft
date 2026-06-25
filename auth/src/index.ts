@@ -3,7 +3,7 @@ import type { Context, Next } from "hono";
 import { stat } from "node:fs/promises";
 import { config, providersEnabled } from "./config.ts";
 import { currentSession, clearSessionCookie } from "./session.ts";
-import { bootstrapAllowlist, getUserById } from "./db.ts";
+import { bootstrapAllowlist, getUserById, pendingFriendRequestCount } from "./db.ts";
 import { mountTelegram } from "./providers/telegram.ts";
 import { mountGoogle } from "./providers/google.ts";
 import { mountEmail } from "./providers/email.ts";
@@ -33,6 +33,9 @@ app.get("/auth/verify", async (c) => {
   if (!s) return c.text("unauthorized", 401);
   c.header("X-Mc-User", s.username);
   c.header("X-Mc-Admin", s.admin ? "1" : "0");
+  // Lets the static Play page show the Friends-tab request dot (it doesn't use
+  // the shared shell that computes this server-side). Piggybacks on this call.
+  c.header("X-Mc-Friend-Requests", String(pendingFriendRequestCount(s.username)));
   return c.text("ok", 200);
 });
 
