@@ -45,12 +45,27 @@ public final class EaglerJwtAuthPlugin extends JavaPlugin {
                     + ", lock-mode=" + (lockUsername ? "require" : "skip") + ").");
         }
 
-        getServer().getPluginManager().registerEvents(
-                new AuthListener(verifier, cookieName, kick, lockUsername, getLogger()), this);
-
-        // Presence endpoint (for the mc-auth panel). Only starts if a token is set.
+        // Presence token (shared with mc-auth) — used both for the presence endpoint
+        // below AND as the bearer for the current-username lookup against mc-auth.
         String presenceToken = System.getenv("MC_PRESENCE_TOKEN");
         if (presenceToken == null || presenceToken.isEmpty()) presenceToken = getConfig().getString("presence-token", "");
+
+        // Current-username resolver: maps a JWT's account id to the live username so
+        // renames take effect immediately and old names stop working. Optional —
+        // disabled (and we fall back to the JWT name) if not configured.
+        String mcAuthUrl = getConfig().getString("mc-auth-url", "http://mc-auth:7900");
+        CurrentNameResolver resolver = null;
+        if (presenceToken != null && !presenceToken.isEmpty() && mcAuthUrl != null && !mcAuthUrl.isEmpty()) {
+            resolver = new CurrentNameResolver(mcAuthUrl, presenceToken, getLogger());
+            getLogger().info("Username resolver enabled (mc-auth=" + mcAuthUrl + ").");
+        } else {
+            getLogger().info("Username resolver disabled (no presence token / mc-auth url); using JWT name as-is.");
+        }
+
+        getServer().getPluginManager().registerEvents(
+                new AuthListener(verifier, resolver, cookieName, kick, lockUsername, getLogger()), this);
+
+        // Presence endpoint (for the mc-auth panel). Only starts if a token is set.
         int presencePort = getConfig().getInt("presence-port", 25580);
         if (presenceToken != null && !presenceToken.isEmpty()) {
             try {
