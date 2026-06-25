@@ -47,6 +47,7 @@ function signupPage(code: string, inv: Invite, error?: string): string {
     ? `<input type="email" name="email" value="${esc(inv.email)}" readonly />`
     : `<input type="email" name="email" placeholder="your email" required />`;
   return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"/><link rel="apple-touch-icon" href="/email-logo.png"/>
 <title>Join · minecraft.mncoleman.com</title>
 <style>
  :root{color-scheme:dark}body{margin:0;min-height:100vh;display:grid;place-items:center;font:16px/1.5 ui-sans-serif,system-ui,sans-serif;color:#e8eaed;background:radial-gradient(1200px 600px at 50% -10%,#1c2a22,transparent 60%),#0d0f12;padding:1.5rem}
