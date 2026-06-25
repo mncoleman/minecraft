@@ -1,12 +1,12 @@
 import type { Hono, Context } from "hono";
 import { randomBytes, randomUUID } from "node:crypto";
-import { db, addAllow, resolveEmailLogin, sanitizeUsername, createToken, getUserById, ownedWorldCount, deleteUser, renameUser } from "./db.ts";
+import { db, addAllow, resolveEmailLogin, sanitizeUsername, createToken, getUserById, deleteUser, renameUser } from "./db.ts";
 import { config } from "./config.ts";
 import { currentSession } from "./session.ts";
 import { signSession } from "./jwt.ts";
 import { setSessionCookie, clientIp, rateLimited } from "./session.ts";
 import { sendInvite, sendVerifyEmail } from "./mailer.ts";
-import { listWorldsSharedWith, revokeBuild, transferInGameIdentity } from "./worlds.ts";
+import { listWorldsSharedWith, listWorldsOwnedBy, revokeBuild, transferInGameIdentity } from "./worlds.ts";
 
 const now = () => Math.floor(Date.now() / 1000);
 const OWNER_EMAIL = (config.adminEmails[0] || "").toLowerCase();
@@ -162,8 +162,12 @@ export function mountInvites(app: Hono): void {
     if (!target) return c.redirect("/admin?err=" + encodeURIComponent("User not found."));
     if ((target.email || "").toLowerCase() === OWNER_EMAIL) return c.redirect("/admin?err=" + encodeURIComponent("The owner account can't be deleted."));
     if (target.is_admin && !(await isOwner(c))) return c.redirect("/admin?err=" + encodeURIComponent("Only the owner can delete an admin."));
-    const owned = ownedWorldCount(targetId);
-    if (owned > 0) return c.redirect("/admin?err=" + encodeURIComponent(`${target.username} owns ${owned} world(s). Reassign or delete those first.`));
+    const ownedWorlds = listWorldsOwnedBy(targetId);
+    if (ownedWorlds.length > 0) {
+      const names = ownedWorlds.map((w) => w.name).join(", ");
+      return c.redirect("/admin?err=" + encodeURIComponent(
+        `${target.username} still owns ${ownedWorlds.length} world(s): ${names}. Reassign them to another user under "All worlds" below, then delete.`));
+    }
 
     // Capture their build grants before deletion so we can revoke them in-game.
     const shared = listWorldsSharedWith(targetId);

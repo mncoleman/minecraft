@@ -337,6 +337,37 @@ export async function unshareWorld(world: World, grantee: User): Promise<void> {
 }
 
 /**
+ * Admin: hand a world to a new owner. Updates the DB owner and re-provisions the
+ * live server so the new owner gets full owner control (WorldGuard region owner,
+ * Multiverse access, world-scoped op commands). The PREVIOUS owner is demoted to
+ * a shared build member (kept, not abruptly cut off — an admin can revoke after);
+ * their owner region grant + op command nodes are stripped. Notes, shares and
+ * saved locations are keyed by world_id and carry over untouched. Throws on the
+ * UNIQUE(owner_user_id, name) constraint if the new owner already has a world by
+ * the same display name (caller surfaces it).
+ */
+export async function reassignWorldOwner(world: World, newOwner: User, adminUserId: string): Promise<void> {
+  const oldOwner = db.query("SELECT * FROM users WHERE id = ?").get(world.owner_user_id) as User | null;
+  if (oldOwner && oldOwner.id === newOwner.id) return; // already the owner
+  // Flip ownership first (may throw on UNIQUE(owner_user_id, name) — that's caught upstream).
+  db.run("UPDATE worlds SET owner_user_id = ? WHERE id = ?", [newOwner.id, world.id]);
+  // New owner: full owner provisioning; and they shouldn't linger as a 'shared' row.
+  await provisionWorld(world.mv_world_name, newOwner.username);
+  db.run("DELETE FROM world_shares WHERE world_id = ? AND grantee_user_id = ?", [world.id, newOwner.id]);
+  // Old owner: drop owner region + op nodes, keep as a shared build member.
+  if (oldOwner) {
+    const oldUuid = offlineUuid(oldOwner.username);
+    await rconAll([`rg removeowner -w ${world.mv_world_name} __global__ ${oldUuid}`]).catch(() => {});
+    await revokeOwnerCommands(world.mv_world_name, oldOwner.username).catch(() => {});
+    db.run(
+      "INSERT OR IGNORE INTO world_shares (id, world_id, grantee_user_id, granted_by, created_at) VALUES (?,?,?,?,?)",
+      [randomUUID(), world.id, oldOwner.id, adminUserId, now()],
+    );
+    await grantBuild(oldOwner.username, world.mv_world_name).catch(() => {});
+  }
+}
+
+/**
  * Move all in-game access from an old username to a new one after a rename. The
  * offline UUID derives from the username, so every WorldGuard/LuckPerms grant
  * keyed on the OLD uuid must be revoked and re-pushed under the NEW uuid. Worlds
