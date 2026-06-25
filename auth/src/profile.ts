@@ -14,6 +14,9 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 function profilePage(u: User, msg?: string, err?: string): string {
   const owner = (u.email || "").toLowerCase() === OWNER_EMAIL;
   const role = owner ? "owner" : u.is_admin ? "admin" : "member";
+  // Always pair the base .badge with a variant (the old code emitted bare
+  // "badge-ok", which dropped the pill shape). owner/admin/member distinct.
+  const roleBadge = owner ? "badge badge-owner" : u.is_admin ? "badge badge-admin" : "badge badge-member";
   const links = [
     u.email ? "email" : null,
     u.telegram_id ? "telegram" : null,
@@ -33,7 +36,7 @@ function profilePage(u: User, msg?: string, err?: string): string {
       <table>
         <tr><td>In-game username</td><td><b>${esc(u.username)}</b><div class="hint">Set this exact name in the game (Main Menu, then Edit Profile, then Username) or you'll be asked to. You can change it below.</div></td></tr>
         <tr><td>Email</td><td>${u.email ? esc(u.email) + verifyBadge : '<span class="hint">—</span>'}</td></tr>
-        <tr><td>Role</td><td><span class="badge${role === "member" ? "" : "-ok"}">${esc(role)}</span></td></tr>
+        <tr><td>Role</td><td><span class="${roleBadge}">${esc(role)}</span></td></tr>
         <tr><td>Sign-in methods</td><td class="hint">${esc(links)}</td></tr>
         <tr><td>Joined</td><td class="hint">${u.created_at ? new Date(u.created_at * 1000).toISOString().slice(0, 10) : ""}</td></tr>
       </table>
