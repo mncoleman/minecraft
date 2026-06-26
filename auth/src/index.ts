@@ -17,6 +17,7 @@ import { mountFriends } from "./friends.ts";
 import { mountChangelog } from "./changelog.ts";
 import { reconcile, bootstrapWorlds } from "./worlds.ts";
 import { startHopAutoRoute, startLocationLogger } from "./presence.ts";
+import { startTelegramNotifications } from "./telegram_notify.ts";
 
 bootstrapAllowlist();
 
@@ -123,6 +124,9 @@ startHopAutoRoute();
 
 // Location logger: record online players' positions for the command center.
 startLocationLogger();
+
+// Owner-only Telegram presence notifications (no-op unless the bot env is set).
+startTelegramNotifications();
 
 // Periodic reconcile (self-heal from any drift) every 15 minutes.
 setInterval(() => {
