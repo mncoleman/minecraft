@@ -158,6 +158,14 @@ CREATE TABLE IF NOT EXISTS friend_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_freq_to   ON friend_requests(to_user_id, status);
 CREATE INDEX IF NOT EXISTS idx_freq_from ON friend_requests(from_user_id, status);
+
+-- Generic server-side key/value settings (e.g. the Telegram notification
+-- toggle + getUpdates offset). Persists across redeploys via the data volume.
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT,
+  updated_at INTEGER NOT NULL
+);
 `);
 
 // ── migrations (idempotent; run on every boot, no-op once applied) ─────────────
@@ -185,6 +193,18 @@ if (!columnExists("teleport_history", "target_user_id")) {
       if (u) db.run("UPDATE teleport_history SET target_user_id = ? WHERE id = ?", [u.id, r.id]);
     }
   } catch { /* backfill is best-effort; never block boot */ }
+}
+
+// ── generic settings kv ────────────────────────────────────────────────────
+export function getSetting(key: string): string | null {
+  const r = db.query("SELECT value FROM settings WHERE key = ?").get(key) as { value: string | null } | undefined;
+  return r ? r.value : null;
+}
+export function setSetting(key: string, value: string): void {
+  db.run(
+    "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    [key, value, Math.floor(Date.now() / 1000)],
+  );
 }
 
 export interface User {
