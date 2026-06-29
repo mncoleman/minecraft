@@ -166,6 +166,22 @@ CREATE TABLE IF NOT EXISTS settings (
   value      TEXT,
   updated_at INTEGER NOT NULL
 );
+
+-- Panel feedback (general feedback, feature requests, bug reports) submitted from
+-- the Feedback tab. Each row is also DM'd to the owner (Telegram) and filed as a
+-- GitHub issue; issue_number/url are backfilled once that API call succeeds.
+CREATE TABLE IF NOT EXISTS feedback (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  username     TEXT NOT NULL,        -- snapshot of the username at submit time
+  kind         TEXT NOT NULL,        -- general | feature | bug
+  message      TEXT NOT NULL,
+  page         TEXT,                 -- optional: where/what they were doing
+  issue_number INTEGER,              -- GitHub issue number once filed
+  issue_url    TEXT,                 -- GitHub issue URL once filed
+  created_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_user ON feedback(user_id, created_at);
 `);
 
 // ── migrations (idempotent; run on every boot, no-op once applied) ─────────────

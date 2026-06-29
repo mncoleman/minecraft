@@ -5,7 +5,7 @@ import { config } from "./config.ts";
 import { currentSession } from "./session.ts";
 import { clientIp, rateLimited } from "./session.ts";
 import { sendFriendRequest } from "./mailer.ts";
-import { shell, esc } from "./layout.ts";
+import { shell, esc, icon } from "./layout.ts";
 
 const now = () => Math.floor(Date.now() / 1000);
 const REQUEST_TTL = 30 * 86400; // friend links/requests valid 30 days
@@ -230,9 +230,9 @@ function loginToAcceptPage(): string {
 .card{width:100%;max-width:400px;background:#14171d;border:1px solid #232a35;border-radius:16px;padding:1.75rem;text-align:center}
 h1{font-size:1.3rem;margin:0 0 .6rem}p{color:#9aa4b2;margin:0 0 1.2rem}
 a.btn{display:inline-block;padding:.75rem 1.2rem;border-radius:10px;border:1px solid #357a57;background:#2f6f4f;color:#fff;font-weight:700;text-decoration:none}
-.hint{font-size:.85rem;margin-top:1rem}</style></head><body>
+.hint{font-size:.85rem;margin-top:1rem}.ic{vertical-align:-.13em}</style></head><body>
 <div class="card">
-  <h1>⛏ Someone wants to be your friend</h1>
+  <h1>${icon("pickaxe")} Someone wants to be your friend</h1>
   <p>Log in to your Minecraft account to accept, then open this link again.</p>
   <a class="btn" href="/login">Log in</a>
   <p class="hint">This link stays valid for 30 days, so you can come back to it anytime.</p>

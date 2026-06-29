@@ -37,6 +37,14 @@ export const config = {
     apiKey: process.env.RESEND_API_KEY ?? "",
     from: process.env.RESEND_FROM ?? "MNColeman Minecraft <mail@mncoleman.com>",
   },
+  // GitHub: auto-file an issue for each panel feedback submission. If the token
+  // is empty the feedback form still records the submission and DMs the owner;
+  // it just skips creating the issue. The token needs Issues: Read & Write on
+  // the repo below (a fine-grained PAT scoped to just that repo is enough).
+  github: {
+    token: process.env.GITHUB_ISSUES_TOKEN ?? "",
+    repo: process.env.GITHUB_REPO ?? "mncoleman/minecraft",
+  },
 
   adminEmails: splitList(process.env.ADMIN_EMAILS).map((e) => e.toLowerCase()),
   adminTelegramIds: splitList(process.env.ADMIN_TELEGRAM_IDS),
