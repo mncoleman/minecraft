@@ -2,7 +2,6 @@ package com.mncoleman.mc.auth;
 
 import net.lax1dude.eaglercraft.backend.server.api.EnumWebSocketHeader;
 import net.lax1dude.eaglercraft.backend.server.api.event.IEaglercraftAuthCheckRequiredEvent.EnumAuthResponse;
-import net.lax1dude.eaglercraft.backend.server.api.event.IEaglercraftAuthCheckRequiredEvent.EnumAuthType;
 import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftAuthCheckRequiredEvent;
 import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftAuthCookieEvent;
 import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftAuthPasswordEvent;
@@ -19,17 +18,20 @@ import java.util.logging.Logger;
  * it off the connection, validate it, and LOCK the in-game username to the
  * authenticated identity so per-world permissions key on an unspoofable name.
  *
- * lock-mode = require (default):
- *   1. AuthCheckRequiredEvent: no valid JWT -> kick. Valid JWT -> the typed
+ * lock-mode = require (default), TRANSPARENT:
+ *   1. AuthCheckRequiredEvent: no valid JWT -> kick. Valid JWT -> the typed/INIT
  *      username MUST equal the account's CURRENT username. That name is resolved
  *      from the JWT's stable sub via mc-auth (CurrentNameResolver), NOT the name
  *      frozen in the token, so a rename takes effect immediately and the old name
- *      stops working. (The offline UUID derives from the typed/INIT name and is
- *      NOT re-derived from setProfileUsername on Bukkit, so they must match or
- *      world data/permissions attach to the wrong UUID.)
- *      On match: require cookie auth so a username-setting event fires next.
- *   2. AuthCookieEvent / AuthPasswordEvent: re-validate, setProfileUsername +
- *      setLoginAllowed (or deny).
+ *      stops working. The offline UUID derives from the typed/INIT name (online-
+ *      mode=false), so enforcing typed == account name HERE is what makes per-
+ *      world permissions key on the right identity.
+ *      On match: SKIP auth (no client password/code prompt, no plaintext wall)
+ *      and disable nickname selection so the name can't change after the check.
+ *   2. AuthCookieEvent / AuthPasswordEvent: defense-in-depth only — they no
+ *      longer fire in the normal SKIP flow, but if a cookie/password auth event
+ *      ever does occur they re-validate the cookie, setProfileUsername + allow
+ *      (or deny). They never trust the typed password.
  *
  * lock-mode = skip (fallback only): admit any valid-JWT holder under their
  *   client-chosen name (NO username lock). Use only if the require handshake
@@ -71,8 +73,10 @@ public final class AuthListener implements Listener {
             return;
         }
 
-        // lock-mode require: the typed name must equal the account username, or
-        // the offline UUID won't match the identity.
+        // lock-mode require (transparent): the typed/INIT name feeds the offline
+        // UUID (online-mode=false), so per-world permissions key on it. We enforce
+        // typed == account username HERE, in the auth-check event, where the name
+        // is final (getAuthUsername == the handshake login name). Mismatch -> kick.
         String typed = requestedName(event);
         if (!r.username.equals(typed)) {
             log.info("[authcheck] name mismatch: typed='" + typed + "' jwt='" + r.username + "' -> kick");
@@ -81,11 +85,15 @@ public final class AuthListener implements Listener {
             return;
         }
 
-        log.info("[authcheck] lock OK for " + r.username + " -> require cookie auth");
+        // Name verified == account, so admit with NO auth handshake (SKIP) -> no
+        // client password/code prompt, no plaintext-confirmation wall. We disable
+        // nickname selection so the connecting name can't be swapped after this
+        // check. No setProfileUsername is needed: the UUID derives from the INIT
+        // name, which now equals the account name. (onAuthCookie/onAuthPassword
+        // below remain as defense-in-depth if a cookie/password event ever fires.)
+        log.info("[authcheck] transparent lock OK for " + r.username + " -> skip (no prompt)");
         event.setNicknameSelectionEnabled(false);
-        event.setUseAuthType(EnumAuthType.PLAINTEXT); // mandatory on REQUIRE; password is ignored
-        event.setEnableCookieAuth(true);
-        event.setAuthRequired(EnumAuthResponse.REQUIRE);
+        event.setAuthRequired(EnumAuthResponse.SKIP);
     }
 
     @EventHandler(priority = EventPriority.NORMAL)

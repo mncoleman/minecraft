@@ -54,7 +54,16 @@ Nobody needs to own Minecraft or install anything — friends open a link in Chr
   allowlist) and **locks the in-game username** to the authenticated identity via
   EaglerXServer's auth-event API (`enable_authentication_events: true`). Page-level
   auth alone is NOT enough (the socket is separately dialable), so enforcement
-  lives here.
+  lives here. The lock is **transparent**: in the auth-check event the plugin
+  verifies the cookie *and* that `getAuthUsername()` equals the account name (the
+  offline UUID, `MD5("OfflinePlayer:"+name)`, derives from it under online-mode
+  off), disables nickname selection, then returns `SKIP` — so there is **no
+  in-game password/code prompt** and click-to-play auto-connect just works. (It
+  does NOT use `REQUIRE`+plaintext auth, which forces EaglercraftX's manual
+  plaintext-confirmation screen on every join. The `AuthCookie`/`AuthPassword`
+  handlers remain as defense-in-depth but never trust the typed password.)
+  `lock-mode: skip` in the plugin config is an emergency, **insecure** fallback
+  that admits without the name check — do not use it while worlds are shared.
 - **Self-contained SQLite user store** — deliberately NOT Supabase, even though
   Supabase runs on the box. Keeping the user/allowlist store inside the mc-auth
   container means the Minecraft stack has zero runtime coupling to core infra.
