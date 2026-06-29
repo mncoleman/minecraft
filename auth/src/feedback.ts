@@ -118,9 +118,87 @@ function issueBody(o: { username: string; kind: Kind; message: string; page: str
     .join("\n");
 }
 
+// ── live issue status (for "your recent submissions") ────────────────────────
+// Each submission's status is read from its GitHub issue: open vs closed, plus
+// the resolution label we attach on close. The labeling convention lives in
+// CLAUDE.md: when a panel-feedback issue is closed it MUST get `complete` (done)
+// or `could-not-fulfil` (won't/can't do) so the submitter sees it here. One
+// cached batch call (per-minute) covers everyone's recent submissions.
+interface LiveIssue {
+  state: string;
+  stateReason: string | null;
+  labels: string[];
+}
+
+const DONE_LABELS = ["complete", "completed", "done", "addressed", "fixed", "shipped", "resolved"];
+const WONT_LABELS = ["could-not-fulfil", "could-not-fulfill", "cannot-fulfil", "cant-do", "wontfix", "wont-fix", "not-planned", "declined"];
+const PROGRESS_LABELS = ["in-progress", "in progress", "wip", "working-on-it"];
+
+let issueCache: { at: number; map: Map<number, LiveIssue> } | null = null;
+const ISSUE_TTL_MS = 60_000;
+
+async function fetchIssueStatuses(): Promise<Map<number, LiveIssue>> {
+  const empty = new Map<number, LiveIssue>();
+  if (!config.github.token || !/^[\w.-]+\/[\w.-]+$/.test(config.github.repo)) return empty;
+  if (issueCache && Date.now() - issueCache.at < ISSUE_TTL_MS) return issueCache.map;
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${config.github.repo}/issues?labels=panel-feedback&state=all&per_page=100`,
+      {
+        headers: {
+          Authorization: `Bearer ${config.github.token}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "mc-auth-feedback",
+        },
+        signal: AbortSignal.timeout(8000),
+      },
+    );
+    if (!res.ok) {
+      console.error(`[feedback] issue status fetch failed ${res.status}`);
+      return issueCache?.map ?? empty; // serve stale on transient error
+    }
+    const arr = (await res.json()) as any[];
+    const map = new Map<number, LiveIssue>();
+    for (const it of arr) {
+      if (typeof it?.number !== "number") continue;
+      const labels = (Array.isArray(it.labels) ? it.labels : [])
+        .map((l: any) => String(typeof l === "string" ? l : l?.name ?? "").toLowerCase())
+        .filter(Boolean);
+      map.set(it.number, { state: String(it.state || "open"), stateReason: it.state_reason ?? null, labels });
+    }
+    issueCache = { at: Date.now(), map };
+    return map;
+  } catch (e: any) {
+    console.error("[feedback] issue status fetch error:", e?.message || e);
+    return issueCache?.map ?? empty;
+  }
+}
+
+interface Status {
+  label: string;
+  badge: string;
+}
+function statusFor(iss: LiveIssue | undefined): Status | null {
+  if (!iss) return null;
+  const has = (arr: string[]) => iss.labels.some((l) => arr.includes(l));
+  if (iss.state === "open") {
+    return has(PROGRESS_LABELS)
+      ? { label: "In progress", badge: "badge badge-owner" }
+      : { label: "Open", badge: "badge" };
+  }
+  // Closed: the resolution LABEL is the source of truth (CLAUDE.md convention).
+  // GitHub's default close reason is "completed", so we don't trust it for "done"
+  // — only the explicit label — but we do honor a "not_planned" close reason.
+  if (has(DONE_LABELS)) return { label: "Completed", badge: "badge badge-ok" };
+  if (has(WONT_LABELS) || iss.stateReason === "not_planned") return { label: "Couldn't do this", badge: "badge badge-muted" };
+  return { label: "Closed", badge: "badge badge-member" };
+}
+
 // ── page ─────────────────────────────────────────────────────────────────────
 function feedbackPage(
   me: { sub: string; username: string; admin: boolean },
+  statuses: Map<number, LiveIssue>,
   presetKind?: string | null,
   msg?: string,
   err?: string,
@@ -136,8 +214,13 @@ function feedbackPage(
         .map((r) => {
           const k = isKind(r.kind) ? r.kind : "general";
           const preview = r.message.length > 90 ? r.message.slice(0, 89) + "…" : r.message;
+          const st = r.issue_number != null ? statusFor(statuses.get(r.issue_number)) : null;
+          const statusBadge = st ? `<span class="${st.badge}">${esc(st.label)}</span>` : "";
           const right = r.issue_url
-            ? `<a class="pill" href="${esc(r.issue_url)}" target="_blank" rel="noopener">#${r.issue_number} ↗</a>`
+            ? `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem">
+                 ${statusBadge}
+                 <a class="pill" href="${esc(r.issue_url)}" target="_blank" rel="noopener">#${r.issue_number} ↗</a>
+               </div>`
             : `<span class="hint">sent</span>`;
           return `<div class="row" style="justify-content:space-between;align-items:flex-start;margin:.4rem 0">
             <span style="flex:1;min-width:0">
@@ -176,7 +259,8 @@ function feedbackPage(
       </form>
     </div>
 
-    ${recent.length ? `<h2>Your recent submissions</h2>${recentBlock}` : ""}
+    ${recent.length ? `<h2>Your recent submissions</h2>
+    <p class="hint" style="margin:-.3rem 0 .6rem">The status updates on its own as we work through them — you'll see <b>Completed</b> or <b>Couldn't do this</b> once an item is wrapped up.</p>${recentBlock}` : ""}
   `;
   return shell({ title: "Feedback", active: "feedback", username: me.username, admin: me.admin, body, msg, err });
 }
@@ -192,7 +276,8 @@ export function mountFeedback(app: Hono): void {
   app.get("/feedback", async (c) => {
     const m = await me(c);
     if (!m) return c.redirect("/login");
-    return c.html(feedbackPage(m, c.req.query("kind"), c.req.query("msg"), c.req.query("err")));
+    const statuses = await fetchIssueStatuses();
+    return c.html(feedbackPage(m, statuses, c.req.query("kind"), c.req.query("msg"), c.req.query("err")));
   });
 
   app.post("/feedback", async (c) => {
