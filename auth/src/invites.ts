@@ -8,6 +8,7 @@ import { setSessionCookie, clientIp, rateLimited } from "./session.ts";
 import { sendInvite, sendVerifyEmail } from "./mailer.ts";
 import { listWorldsSharedWith, listWorldsOwnedBy, revokeBuild, transferInGameIdentity } from "./worlds.ts";
 import { rcon } from "./rcon.ts";
+import { icon } from "./layout.ts";
 
 const now = () => Math.floor(Date.now() / 1000);
 const OWNER_EMAIL = (config.adminEmails[0] || "").toLowerCase();
@@ -58,8 +59,9 @@ function signupPage(code: string, inv: Invite, error?: string): string {
  button{padding:.75rem;border-radius:10px;border:1px solid #357a57;background:#2f6f4f;color:#fff;font:inherit;font-weight:700;cursor:pointer}
  .err{background:#3a1d24;border:1px solid #6b2c39;color:#ffb3c0;padding:.55rem .8rem;border-radius:10px;font-size:.88rem;margin-bottom:.8rem}
  .hint{color:#8b95a3;font-size:.82rem;margin-top:1rem;text-align:center}
+ .ic{vertical-align:-.13em}
 </style></head><body><div class="card">
- <h1>⛏ Join the server</h1>
+ <h1>${icon("pickaxe")} Join the server</h1>
  <p class="sub">You've been invited to minecraft.mncoleman.com. Pick your in-game name and a password.</p>
  ${error ? `<div class="err">${esc(error)}</div>` : ""}
  <form method="post" action="/invite/${esc(code)}">

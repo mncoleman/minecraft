@@ -33,6 +33,10 @@ player's in-game name is locked to their account.
     op-level slash commands **scoped to their own world** (LuckPerms world
     context, never global `/op`).
   - **Per-world notes**, a seed map link, and a "What's new" feed on the Play page.
+  - **Feedback** — a form for general feedback, feature requests, and bug reports.
+    Each submission DMs the owner over Telegram and is auto-filed as a labelled
+    GitHub issue in the project repo (best-effort; the form still works without
+    the GitHub token configured).
 - Account management: change username and email (confirm by link), password
   reset, and transactional email via Resend.
 - Admin tools: invite links (optionally emailed), role management, user deletion

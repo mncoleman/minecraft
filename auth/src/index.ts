@@ -15,6 +15,7 @@ import { mountProfile } from "./profile.ts";
 import { mountAccount } from "./account.ts";
 import { mountFriends } from "./friends.ts";
 import { mountChangelog } from "./changelog.ts";
+import { mountFeedback } from "./feedback.ts";
 import { reconcile, bootstrapWorlds } from "./worlds.ts";
 import { startHopAutoRoute, startLocationLogger } from "./presence.ts";
 import { startTelegramNotifications } from "./telegram_notify.ts";
@@ -86,6 +87,7 @@ mountProfile(app);
 mountAccount(app);
 mountFriends(app);
 mountChangelog(app);
+mountFeedback(app);
 
 // Public branding asset for transactional emails (email clients fetch it with no
 // cookie, so it must be ungated). Served from the baked-in public/ dir.

@@ -21,7 +21,7 @@ function canAccess(w: World, m: { sub: string; admin: boolean }): boolean {
 }
 import { rcon, stripColor } from "./rcon.ts";
 import { config } from "./config.ts";
-import { shell } from "./layout.ts";
+import { shell, icon } from "./layout.ts";
 
 const GLOBAL_WORLD_CAP = Number(process.env.WORLD_CAP || 8);
 // How many worlds a non-admin may own. Admins are bound only by the global cap.
@@ -65,9 +65,9 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
   const cardLinks = (w: World) =>
     `<span class="row" style="margin:0;gap:.4rem">
       ${w.seed ? `<code class="hint" style="font-size:.74rem" title="World seed (Java 1.12.2) — select to copy">${esc(w.seed)}</code>` : ""}
-      <a class="pill" href="/worlds/${w.id}/notes">📝 Notes</a>
-      <a class="pill" href="/worlds/${w.id}/console">🎮 Command</a>
-      ${w.seed ? `<a class="pill" href="${mapUrl(w.seed)}" target="_blank" rel="noopener" title="Open the Chunkbase seed map — set the version to Java 1.12">🗺 Map</a>` : ""}
+      <a class="pill" href="/worlds/${w.id}/notes">${icon("note")} Notes</a>
+      <a class="pill" href="/worlds/${w.id}/console">${icon("terminal")} Command</a>
+      ${w.seed ? `<a class="pill" href="${mapUrl(w.seed)}" target="_blank" rel="noopener" title="Open the Chunkbase seed map — set the version to Java 1.12">${icon("map")} Map</a>` : ""}
       <form method="post" action="/worlds/${w.id}/hop" style="margin:0"><button class="btn-ghost">Hop in →</button></form>
     </span>`;
 
@@ -213,7 +213,7 @@ function notesPage(w: World, meCtx: { username: string; admin: boolean }, note: 
   const when = note?.updated_at ? new Date(note.updated_at * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : null;
   const body = `
     <p class="sub"><a href="/worlds">← Worlds</a></p>
-    <h1>📝 Notes — ${esc(w.name)}</h1>
+    <h1>${icon("note")} Notes — ${esc(w.name)}</h1>
     <p class="sub">Shared notepad for this world — everyone with access can read &amp; edit. ${when ? `Last saved ${when}${editor ? " by " + esc(editor) : ""}.` : "No notes yet."}</p>
     <div class="card">
       <form method="post" action="/worlds/${w.id}/notes">
@@ -309,7 +309,7 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
 
   const body = `
     <p class="sub"><a href="/worlds">← Worlds</a></p>
-    <h1>🎮 Command Center — ${esc(w.name)} <code>${esc(w.mv_world_name)}</code></h1>
+    <h1>${icon("terminal")} Command Center — ${esc(w.name)} <code>${esc(w.mv_world_name)}</code></h1>
     <p class="sub">Run commands in this world. ${status}</p>
 
     ${card("Teleport to coordinates", `<input type="hidden" name="cmd" value="tp_coords"/>
@@ -346,7 +346,7 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
 
     ${meCtx.owner ? card("Raw command (owner)", `<input type="hidden" name="cmd" value="raw"/>
       <input name="raw" placeholder="command without the slash, e.g. difficulty peaceful" required style="flex:1;min-width:260px">`,
-      "⚠️ Runs verbatim on the server console — full power, owner-only.") : ""}
+      icon("alert") + " Runs verbatim on the server console — full power, owner-only.") : ""}
   `;
   return shell({ title: "Command Center", active: "worlds", username: meCtx.username, admin: meCtx.admin, body, msg, err });
 }

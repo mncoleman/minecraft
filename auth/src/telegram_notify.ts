@@ -66,6 +66,15 @@ async function send(text: string): Promise<void> {
   }
 }
 
+// Reusable owner DM for OTHER server-side features (e.g. the Feedback form).
+// No-ops silently if the bot isn't configured. `text` is sent as HTML — escape
+// any user-supplied content with tgEsc() before interpolating it.
+export async function notifyOwner(text: string): Promise<void> {
+  if (!TOKEN || !CHAT_ID) return;
+  await send(text);
+}
+export const tgEsc = esc;
+
 function onlineList(players: OnlinePlayer[]): string {
   if (!players.length) return "No one is online right now.";
   return `Online now (${players.length}):\n` +
@@ -74,11 +83,11 @@ function onlineList(players: OnlinePlayer[]): string {
 
 async function statusText(): Promise<string> {
   const players = await getPresence();
-  return `Notifications: <b>${enabled() ? "ON 🔔" : "OFF 🔕"}</b>\n\n${onlineList(players)}`;
+  return `Notifications: <b>${enabled() ? "ON" : "OFF"}</b>\n\n${onlineList(players)}`;
 }
 
 const helpText =
-  "⛏ <b>Minecraft presence bot</b>\n\n" +
+  "<b>Minecraft presence bot</b>\n\n" +
   "/status — notifications on/off + who's online\n" +
   "/on — turn join notifications on\n" +
   "/off — turn join notifications off";
@@ -100,11 +109,11 @@ async function handleUpdate(u: any): Promise<void> {
       break;
     case "/on":
       setEnabled(true);
-      await send("🔔 Notifications <b>ON</b>. I'll ping you when someone joins.");
+      await send("Notifications <b>ON</b>. I'll ping you when someone joins.");
       break;
     case "/off":
       setEnabled(false);
-      await send("🔕 Notifications <b>OFF</b>. Use /on to re-enable.");
+      await send("Notifications <b>OFF</b>. Use /on to re-enable.");
       break;
     case "/status":
       await send(await statusText());
@@ -160,7 +169,7 @@ async function pollPresence(): Promise<void> {
       const joins = players.filter((p) => !prev!.has(p.name.toLowerCase()) && !IGNORE.has(p.name.toLowerCase()));
       for (const p of joins) {
         await send(
-          `🟢 <b>${esc(p.name)}</b> joined Minecraft${p.world ? ` (world: ${esc(p.world)})` : ""}\n\n${onlineList(players)}`,
+          `<b>${esc(p.name)}</b> joined Minecraft${p.world ? ` (world: ${esc(p.world)})` : ""}\n\n${onlineList(players)}`,
         );
       }
     }
