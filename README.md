@@ -87,6 +87,16 @@ Two security layers:
    denied). Page-level gating alone is not enough because the socket is dialable
    on its own, so enforcement lives in the plugin.
 
+The join is **transparent — no in-game password or code prompt**. The plugin
+validates the cookie and checks that the username you connect with equals your
+account name, then admits you with the handshake's `SKIP` response (online-mode
+is off, so the offline UUID derives from that name — enforcing it here is what
+keeps per-world build permissions tied to the right identity). If the names
+don't match you're kicked with *"Set your in-game username to: &lt;name&gt;"* — set it
+once under **Edit Profile → Username** and reconnect. (It does not force the
+EaglercraftX plaintext-auth prompt, which would otherwise require a manual
+confirmation click on every join and breaks click-to-play auto-connect.)
+
 Paper runs 1.12.2 because that is the maintained Eaglercraft backend target. The
 Via chain (ViaVersion, ViaBackwards, ViaRewind, Legacy-Support) downgrades it so
 the 1.8 Eaglercraft client connects, and EaglerXServer adds the browser
