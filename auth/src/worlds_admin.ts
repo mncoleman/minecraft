@@ -25,7 +25,7 @@ import { shell, icon } from "./layout.ts";
 
 const GLOBAL_WORLD_CAP = Number(process.env.WORLD_CAP || 8);
 // How many worlds a non-admin may own. Admins are bound only by the global cap.
-const PER_USER_WORLD_CAP = Number(process.env.PER_USER_WORLD_CAP || 3);
+const PER_USER_WORLD_CAP = Number(process.env.PER_USER_WORLD_CAP || 10);
 // Bukkit's default world folders. The shared lobby is the world named "world" and
 // is intentionally NOT in our DB, so getWorldByMv() would not catch it. Block these
 // explicitly from create/register: claiming one would hand the caller WorldGuard
@@ -35,6 +35,13 @@ const OWNER_EMAIL = (config.adminEmails[0] || "").toLowerCase();
 
 function esc(s: string): string {
   return (s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+}
+// Sanitize a user-supplied world seed before it goes into an `mv create ... -s`
+// RCON command. Keep only letters, digits, dash and underscore so it stays a
+// single token (no spaces / flag injection), allowing negative numeric seeds
+// and text seeds. Capped in length; empty string means "no seed given".
+function sanitizeSeed(s: string): string {
+  return (s ?? "").trim().replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
 }
 function userById(id: string): User | null {
   return db.query("SELECT * FROM users WHERE id = ?").get(id) as User | null;
@@ -150,8 +157,8 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
       <p class="hint" style="margin:.1rem 0 .7rem">Pick a short name (letters, numbers and dashes). You'll become its owner, and you can share build access with friends from your world card above.</p>
       ${atUserCap
         ? `<p class="hint" style="margin:0">You've reached your limit of ${PER_USER_WORLD_CAP} worlds. Ask an admin if you need more.</p>`
-        : `<form method="post" action="/worlds/create" class="row" style="margin:0" onsubmit="var b=this.querySelector('button');if(b.disabled)return false;b.disabled=true;b.textContent='Creating…'"><input name="name" placeholder="my world name" required/><button class="btn-primary">Create</button></form>
-           ${me.admin ? "" : `<p class="hint" style="margin:.6rem 0 0">You can create up to ${PER_USER_WORLD_CAP} worlds.</p>`}`}
+        : `<form method="post" action="/worlds/create" class="row" style="margin:0" onsubmit="var b=this.querySelector('button');if(b.disabled)return false;b.disabled=true;b.textContent='Creating…'"><input name="name" placeholder="my world name" required/><input name="seed" placeholder="seed (optional)"/><button class="btn-primary">Create</button></form>
+           <p class="hint" style="margin:.5rem 0 0">Leave the seed blank for a random world, or paste a seed (a number, or any word) to generate a specific one.${me.admin ? "" : ` You can create up to ${PER_USER_WORLD_CAP} worlds.`}</p>`}
       ${me.admin ? `
       <div style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid #232a35">
         <div class="hint" style="margin-bottom:.4rem">Admin tools</div>
@@ -375,12 +382,17 @@ export function mountWorlds(app: Hono): void {
     if (RESERVED_MV_WORLDS.has(mv)) return redirect(c, "?err=" + encodeURIComponent("That world name is reserved."));
     if (getWorldByMv(mv)) return redirect(c, "?err=" + encodeURIComponent("A world with that name already exists."));
     if (listAllWorlds().length >= GLOBAL_WORLD_CAP) return redirect(c, "?err=" + encodeURIComponent(`The server is at its world limit (${GLOBAL_WORLD_CAP}). Ask an admin.`));
+    // Optional custom seed. Restrict to a safe charset so it can't inject extra
+    // RCON args/flags (no spaces). Minecraft accepts numeric or text seeds; a
+    // leading "-" allows negative numeric seeds. Blank → Multiverse picks random.
+    const seedInput = sanitizeSeed(String(form.seed ?? ""));
     try {
       // World generation can take longer than the default RCON window, so give
       // this call a generous timeout; the response carries "Complete!" on success.
       let out = "";
       try {
-        out = stripColor(await rcon(`mv create ${mv} normal`, 30000));
+        const cmd = seedInput ? `mv create ${mv} normal -s ${seedInput}` : `mv create ${mv} normal`;
+        out = stripColor(await rcon(cmd, 30000));
       } catch { /* may have timed out while still generating — detect below */ }
       // Success if Multiverse confirmed, OR the world actually exists now. A slow
       // create whose RCON response timed out still finishes server-side: adopt it
