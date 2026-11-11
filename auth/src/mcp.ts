@@ -349,7 +349,7 @@ export function mountMcp(app: Hono): void {
       ${fresh ? `<div class="card"><p style="margin:0 0 .5rem"><b>Your new token — copy it now, it won't be shown again:</b></p>
         <code style="word-break:break-all;display:block;margin-bottom:.8rem">${esc(fresh)}</code>
         <p class="hint" style="margin:0 0 .3rem">Add it to Claude Code (terminal or the desktop app's Code tab):</p>
-        <code style="word-break:break-all;display:block">claude mcp add --transport http minecraft ${esc(url)} --header "Authorization: Bearer ${esc(fresh)}"</code>
+        <code style="word-break:break-all;display:block">claude mcp add --scope user --transport http minecraft ${esc(url)} --header "Authorization: Bearer ${esc(fresh)}"</code>
         <p class="hint" style="margin:.6rem 0 0">claude.ai's custom connectors need OAuth, which this doesn't support yet — use Claude Code for now.</p></div>` : ""}
       <div class="card">
         <form method="post" action="/admin/claude/token" class="row" style="margin:0">

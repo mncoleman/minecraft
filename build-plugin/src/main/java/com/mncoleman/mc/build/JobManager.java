@@ -160,7 +160,7 @@ public final class JobManager {
                 int curId = b.getTypeId(); byte curData = b.getData();
                 if ("undo".equals(j.kind)) {
                     // Only revert what we placed; anything changed since stays.
-                    if (curId != j.prevIds[i] || curData != j.prevDatas[i]) { j.skippedOccupied++; continue; }
+                    if (!sameAsPlaced(curId, curData, j.prevIds[i], j.prevDatas[i])) { j.skippedOccupied++; continue; }
                     // A container the build placed may since hold a player's items — keep it.
                     if (hasTileEntity(w, x, y, z)) { j.skippedProtected++; continue; }
                 } else {
@@ -195,6 +195,44 @@ public final class JobManager {
             jobs.values().stream().filter(x -> x.finishedAt > 0).sorted(Comparator.comparingLong(x -> x.finishedAt))
                 .limit(jobs.size() - 150).map(x -> x.id).forEach(jobs::remove);
         }
+    }
+
+    // Blocks whose id/data the game changes on its own after placement (power
+    // state, rail shape, torch on/off, flowing vs still). Undo matches these by
+    // block FAMILY and ignores data, so a powered rail still counts as "ours".
+    private static int family(int id) {
+        Material m = Material.getMaterial(id);
+        if (m == null) return id;
+        switch (m) {
+            case REDSTONE_TORCH_OFF: return Material.REDSTONE_TORCH_ON.getId();
+            case DIODE_BLOCK_ON: return Material.DIODE_BLOCK_OFF.getId();
+            case REDSTONE_COMPARATOR_ON: return Material.REDSTONE_COMPARATOR_OFF.getId();
+            case REDSTONE_LAMP_ON: return Material.REDSTONE_LAMP_OFF.getId();
+            case STATIONARY_WATER: return Material.WATER.getId();
+            case STATIONARY_LAVA: return Material.LAVA.getId();
+            case BURNING_FURNACE: return Material.FURNACE.getId();
+            default: return id;
+        }
+    }
+    private static final Set<Material> DATA_MUTABLE = EnumSet.of(
+        Material.RAILS, Material.POWERED_RAIL, Material.DETECTOR_RAIL, Material.ACTIVATOR_RAIL, Material.REDSTONE_WIRE,
+        Material.REDSTONE_TORCH_ON, Material.REDSTONE_TORCH_OFF, Material.DIODE_BLOCK_OFF, Material.DIODE_BLOCK_ON,
+        Material.REDSTONE_COMPARATOR_OFF, Material.REDSTONE_COMPARATOR_ON, Material.REDSTONE_LAMP_OFF, Material.REDSTONE_LAMP_ON,
+        Material.LEVER, Material.STONE_BUTTON, Material.WOOD_BUTTON, Material.WATER, Material.STATIONARY_WATER, Material.LAVA,
+        Material.STATIONARY_LAVA, Material.WOODEN_DOOR, Material.IRON_DOOR_BLOCK, Material.SPRUCE_DOOR, Material.BIRCH_DOOR,
+        Material.JUNGLE_DOOR, Material.ACACIA_DOOR, Material.DARK_OAK_DOOR, Material.TRAP_DOOR, Material.IRON_TRAPDOOR,
+        Material.FENCE_GATE, Material.SPRUCE_FENCE_GATE, Material.BIRCH_FENCE_GATE, Material.JUNGLE_FENCE_GATE,
+        Material.ACACIA_FENCE_GATE, Material.DARK_OAK_FENCE_GATE, Material.PISTON_BASE, Material.PISTON_STICKY_BASE,
+        Material.DISPENSER, Material.DROPPER, Material.HOPPER, Material.FURNACE, Material.BURNING_FURNACE, Material.TRIPWIRE,
+        Material.TRIPWIRE_HOOK, Material.DAYLIGHT_DETECTOR, Material.DAYLIGHT_DETECTOR_INVERTED, Material.NOTE_BLOCK,
+        Material.LEAVES, Material.LEAVES_2, Material.GRASS, Material.SOIL, Material.CROPS, Material.VINE);
+
+    /** Does the current block still look like what the build placed? */
+    private static boolean sameAsPlaced(int curId, byte curData, int placedId, byte placedData) {
+        if (curId == placedId && curData == placedData) return true;
+        if (family(curId) != family(placedId)) return false;
+        Material m = Material.getMaterial(placedId);
+        return m != null && DATA_MUTABLE.contains(m);
     }
 
     private static boolean hasTileEntity(World w, int x, int y, int z) {
