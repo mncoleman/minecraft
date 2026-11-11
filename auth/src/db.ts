@@ -439,7 +439,7 @@ export function renameUser(userId: string, rawNew: string): { oldUsername: strin
 }
 
 export function ownedWorldCount(userId: string): number {
-  return (db.query("SELECT COUNT(*) AS n FROM worlds WHERE owner_user_id = ?").get(userId) as { n: number }).n;
+  return (db.query("SELECT COUNT(*) AS n FROM worlds WHERE owner_user_id = ? AND mv_world_name <> 'world'").get(userId) as { n: number }).n;
 }
 
 /** Count of pending incoming friend requests for a username (for the nav dot).

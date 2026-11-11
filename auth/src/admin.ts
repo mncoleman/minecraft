@@ -117,7 +117,7 @@ function adminPage(me: { sub: string; username: string; owner: boolean }, online
         <div class="row" style="justify-content:space-between;margin:0;gap:.5rem">
           <span><b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">owner: ${esc(o?.username || "?")} · ${shared} shared</span></span>
           <span class="row" style="margin:0;gap:.4rem">
-            ${opts
+            ${opts && w.mv_world_name !== "world"
               ? `<form method="post" action="/worlds/${w.id}/reassign" class="row" style="margin:0" onsubmit="return confirm('Reassign ${esc(w.name)} to the selected user? The current owner becomes a shared build member, and you can then delete them if needed.')">
                    <select name="username" required style="min-width:120px">${opts}</select>
                    <button class="btn-ghost">Reassign</button>

@@ -7,7 +7,7 @@ import {
   type World, type WorldNote,
   listAllWorlds, listWorldsOwnedBy, listWorldsSharedWith, sharesForWorld,
   getWorld, getWorldByMv, insertWorld, sanitizeWorldName,
-  provisionWorld, shareWorld, unshareWorld, reassignWorldOwner, deleteWorld, isProtectedWorld, teleportTo, setPendingDestination,
+  isLobby, provisionWorld, shareWorld, unshareWorld, reassignWorldOwner, deleteWorld, isProtectedWorld, teleportTo, setPendingDestination,
   getNote, saveNote, getLocation, fetchWorldSeed, readMvWorld, liveWorldExists,
   recordTeleport, recentTeleports, listSavedLocations, saveLocation, updateSavedLocation, deleteSavedLocation,
 } from "./worlds.ts";
@@ -16,6 +16,7 @@ import { ownedWorldCount } from "./db.ts";
 import { visibleOnlineUsernames, listFriends, areFriends } from "./friends.ts";
 
 function canAccess(w: World, m: { sub: string; admin: boolean }): boolean {
+  if (isLobby(w.mv_world_name)) return true; // shared lobby is open to everyone
   if (w.owner_user_id === m.sub || m.admin) return true;
   return !!db.query("SELECT 1 FROM world_shares WHERE world_id=? AND grantee_user_id=?").get(w.id, m.sub);
 }
@@ -67,7 +68,8 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
   const shared = listWorldsSharedWith(me.sub);
   // Admins also see every other active world (not owned by / shared with them).
   const mine = new Set([...owned, ...shared].map((w) => w.id));
-  const others = me.admin ? listAllWorlds().filter((w) => w.status === "active" && !mine.has(w.id)) : [];
+  const lobby = getWorldByMv("world");
+  const others = me.admin ? listAllWorlds().filter((w) => w.status === "active" && !mine.has(w.id) && !isLobby(w.mv_world_name)) : [];
   // Privacy: non-admins only see friends, world co-members, and themselves online.
   const visible = me.admin ? null : visibleOnlineUsernames(me.sub);
   const online = visible ? onlineAll.filter((p) => visible.has(p.name.toLowerCase())) : onlineAll;
@@ -82,7 +84,7 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
     `<span class="row" style="margin:0;gap:.4rem">
       ${w.seed ? `<code class="hint" style="font-size:.74rem" title="World seed (Java 1.12.2) — select to copy">${esc(w.seed)}</code>` : ""}
       <a class="pill" href="/worlds/${w.id}/notes">${icon("note")} Notes</a>
-      <a class="pill" href="/worlds/${w.id}/console">${icon("terminal")} Command</a>
+      ${isLobby(w.mv_world_name) && !me.admin ? "" : `<a class="pill" href="/worlds/${w.id}/console">${icon("terminal")} Command</a>`}
       ${w.seed ? `<a class="pill" href="${mapUrl(w.seed)}" target="_blank" rel="noopener" title="Open the Chunkbase seed map — set the version to Java 1.12">${icon("map")} Map</a>` : ""}
       <form method="post" action="/worlds/${w.id}/hop" style="margin:0"><button class="btn-ghost">Hop in →</button></form>
     </span>`;
@@ -161,6 +163,11 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
       : me.admin
         ? '<p class="hint">No one is online right now. Hit <b>Play</b> to jump on.</p>'
         : '<p class="hint">None of your friends are online right now. You only see friends and people you share a world with here — add friends in the <a href="/friends">Friends</a> tab.</p>'}
+
+    ${lobby ? `<h2>Lobby</h2>
+    <div class="world"><div class="row" style="justify-content:space-between;margin:0">
+      <span><b>${esc(lobby.name)}</b> <code>${esc(lobby.mv_world_name)}</code> <span class="hint">— shared by everyone, anyone can build</span></span>
+      ${cardLinks(lobby)}</div></div>` : ""}
 
     <h2>My worlds</h2>
     ${owned.length ? owned.map(ownedBlock).join("") : '<p class="hint">You don\'t own any worlds yet — create one below.</p>'}
@@ -319,6 +326,10 @@ function itemArg(v: unknown): string {
 }
 function worldMembers(w: World): Array<{ username: string; isOwner: boolean }> {
   const out: Array<{ username: string; isOwner: boolean }> = [];
+  if (isLobby(w.mv_world_name)) { // everyone belongs to the lobby
+    for (const u of db.query("SELECT username FROM users ORDER BY username COLLATE NOCASE").all() as Array<{ username: string }>) out.push({ username: u.username, isOwner: false });
+    return out;
+  }
   const o = userById(w.owner_user_id);
   if (o) out.push({ username: o.username, isOwner: true });
   for (const s of sharesForWorld(w.id)) out.push({ username: s.username, isOwner: false });
@@ -498,7 +509,7 @@ export function mountWorlds(app: Hono): void {
     if (mv.length < 1) return redirect(c, "?err=" + encodeURIComponent("Invalid world name."));
     if (RESERVED_MV_WORLDS.has(mv)) return redirect(c, "?err=" + encodeURIComponent("That world name is reserved."));
     if (getWorldByMv(mv)) return redirect(c, "?err=" + encodeURIComponent("A world with that name already exists."));
-    if (listAllWorlds().length >= GLOBAL_WORLD_CAP) return redirect(c, "?err=" + encodeURIComponent(`The server is at its world limit (${GLOBAL_WORLD_CAP}). Ask an admin.`));
+    if (listAllWorlds().filter((x) => !isLobby(x.mv_world_name)).length >= GLOBAL_WORLD_CAP) return redirect(c, "?err=" + encodeURIComponent(`The server is at its world limit (${GLOBAL_WORLD_CAP}). Ask an admin.`));
     // Optional custom seed. Restrict to a safe charset so it can't inject extra
     // RCON args/flags (no spaces). Minecraft accepts numeric or text seeds; a
     // leading "-" allows negative numeric seeds. Blank → Multiverse picks random.
@@ -566,6 +577,7 @@ export function mountWorlds(app: Hono): void {
     if (!m) return c.redirect("/login");
     const w = getWorld(c.req.param("id"));
     if (!w) return redirect(c, "?err=" + encodeURIComponent("World not found."));
+    if (isLobby(w.mv_world_name)) return redirect(c, "?err=" + encodeURIComponent("The lobby is open to everyone; it can't be shared or reassigned."));
     if (w.owner_user_id !== m.sub && !m.admin) return redirect(c, "?err=" + encodeURIComponent("You can only share worlds you own."));
     const form = await c.req.parseBody();
     const grantee = userByUsername(String(form.username ?? "").trim());
@@ -589,6 +601,7 @@ export function mountWorlds(app: Hono): void {
     if (!m) return c.redirect("/login");
     const w = getWorld(c.req.param("id"));
     if (!w) return redirect(c, "?err=" + encodeURIComponent("World not found."));
+    if (isLobby(w.mv_world_name)) return redirect(c, "?err=" + encodeURIComponent("The lobby is open to everyone; it can't be shared or reassigned."));
     if (w.owner_user_id !== m.sub && !m.admin) return redirect(c, "?err=" + encodeURIComponent("You can only manage worlds you own."));
     const form = await c.req.parseBody();
     const grantee = userById(String(form.grantee ?? ""));
@@ -609,6 +622,7 @@ export function mountWorlds(app: Hono): void {
     if (!m.admin) return c.redirect("/admin?err=" + encodeURIComponent("Admins only."));
     const w = getWorld(c.req.param("id"));
     if (!w) return c.redirect("/admin?err=" + encodeURIComponent("World not found."));
+    if (isLobby(w.mv_world_name)) return c.redirect("/admin?err=" + encodeURIComponent("The lobby is open to everyone; it can't be shared or reassigned."));
     const form = await c.req.parseBody();
     const newOwner = userByUsername(String(form.username ?? "").trim());
     if (!newOwner) return c.redirect("/admin?err=" + encodeURIComponent("Pick an existing user to reassign to."));
@@ -716,6 +730,7 @@ export function mountWorlds(app: Hono): void {
     const w = getWorld(c.req.param("id"));
     if (!w) return redirect(c, "?err=" + encodeURIComponent("World not found."));
     if (!canAccess(w, m)) return redirect(c, "?err=" + encodeURIComponent("You don't have access to that world."));
+    if (isLobby(w.mv_world_name) && !m.admin) return redirect(c, "?err=" + encodeURIComponent("The lobby's Command Center is admin-only."));
     return c.html(consolePage(w, m, await getPresence(), c.req.query("msg"), c.req.query("err")));
   });
   app.post("/worlds/:id/run", async (c) => {
@@ -723,6 +738,7 @@ export function mountWorlds(app: Hono): void {
     const w = getWorld(c.req.param("id"));
     if (!w) return redirect(c, "?err=" + encodeURIComponent("World not found."));
     if (!canAccess(w, m)) return redirect(c, "?err=" + encodeURIComponent("You don't have access to that world."));
+    if (isLobby(w.mv_world_name) && !m.admin) return redirect(c, "?err=" + encodeURIComponent("The lobby's Command Center is admin-only."));
     const back = (q: string) => c.redirect(`/worlds/${w.id}/console?${q}`);
     const form = await c.req.parseBody();
     const cmd = String(form.cmd ?? "");
@@ -741,6 +757,10 @@ export function mountWorlds(app: Hono): void {
     const meOn = online.find((p) => p.name.toLowerCase() === m.username.toLowerCase());
     if (!meOn) return back("err=" + encodeURIComponent("You must be in the game to run commands — hit Play first."));
     const inWorld = meOn.world === w.mv_world_name;
+    // A teleport may only land you in a world you could enter yourself (registered
+    // worlds via canAccess; unregistered ones like world_nether stay open).
+    const mayEnter = (mv: string) => { const t = getWorldByMv(mv); return !t || canAccess(t, m); };
+    const noEntry = (mv: string) => back("err=" + encodeURIComponent(`You don't have access to ${mv}.`));
 
     let command = "";
     let dest: { world: string; x: number; y: number; z: number; label: string; targetUserId?: string | null } | null = null;
@@ -758,11 +778,13 @@ export function mountWorlds(app: Hono): void {
           const tuid = userByUsername(target)?.id ?? null; // stable id → name resolves live later
           const tOn = online.find((p) => p.name.toLowerCase() === target.toLowerCase());
           if (tOn) {
+            if (!mayEnter(tOn.world)) return noEntry(tOn.world);
             command = `tp ${m.username} ${target}`;
             if (typeof tOn.x === "number") dest = { world: tOn.world, x: tOn.x, y: tOn.y as number, z: tOn.z as number, label: "→ " + target, targetUserId: tuid };
           } else {
             const loc = getLocation(target);
             if (!loc) return back("err=" + encodeURIComponent(`No known location for ${target} yet.`));
+            if (!mayEnter(loc.world)) return noEntry(loc.world);
             if (loc.world !== meOn.world) await teleportTo(m.username, loc.world);
             command = `tp ${m.username} ${loc.x} ${loc.y} ${loc.z}`;
             dest = { world: loc.world, x: loc.x, y: loc.y, z: loc.z, label: "→ " + target, targetUserId: tuid };
@@ -772,6 +794,7 @@ export function mountWorlds(app: Hono): void {
         case "tp_loc": {
           const world = sanitizeWorldName(String(form.world ?? ""));
           if (!world) return back("err=" + encodeURIComponent("Bad destination."));
+          if (!mayEnter(world)) return noEntry(world);
           const x = intArg(form.x), y = intArg(form.y), z = intArg(form.z);
           if (meOn.world !== world) await teleportTo(m.username, world);
           command = `tp ${m.username} ${x} ${y} ${z}`;
@@ -779,6 +802,7 @@ export function mountWorlds(app: Hono): void {
           break;
         }
         case "gamemode":
+          if (!inWorld) return back("err=" + encodeURIComponent(`Stand in ${w.mv_world_name} first.`));
           command = `gamemode ${pickEnum(form.mode, ["survival", "creative", "adventure", "spectator"])} ${m.username}`;
           break;
         case "difficulty":
@@ -793,6 +817,7 @@ export function mountWorlds(app: Hono): void {
           command = `execute ${m.username} ~ ~ ~ weather ${pickEnum(form.val, ["clear", "rain", "thunder"])}`;
           break;
         case "give":
+          if (!inWorld) return back("err=" + encodeURIComponent(`Stand in ${w.mv_world_name} first.`));
           command = `give ${m.username} ${itemArg(form.item)} ${intArg(form.count, 1, 64)}`;
           break;
         default:
@@ -892,8 +917,9 @@ export function mountWorlds(app: Hono): void {
     const origFilename = String(c.req.query("filename") ?? "world.zip");
     const mv = sanitizeWorldName(nameRaw || origFilename.replace(/\.zip$/i, ""));
     if (!mv) return bail("?err=" + encodeURIComponent("Invalid world name."));
+    if (RESERVED_MV_WORLDS.has(mv)) return bail("?err=" + encodeURIComponent("That name is reserved."));
     if (getWorldByMv(mv)) return bail("?err=" + encodeURIComponent("A world with that name already exists."));
-    if (listAllWorlds().length >= GLOBAL_WORLD_CAP) return bail("?err=" + encodeURIComponent(`World cap reached (${GLOBAL_WORLD_CAP}).`));
+    if (listAllWorlds().filter((x) => !isLobby(x.mv_world_name)).length >= GLOBAL_WORLD_CAP) return bail("?err=" + encodeURIComponent(`World cap reached (${GLOBAL_WORLD_CAP}).`));
     const declaredSize = Number(c.req.header("content-length") ?? "0");
     if (declaredSize > MAX_UPLOAD) return bail("?err=" + encodeURIComponent("World too large (max 400MB)."));
     if (!body) return redirect(c, "?err=" + encodeURIComponent("No file uploaded."));

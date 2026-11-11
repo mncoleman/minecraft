@@ -145,7 +145,7 @@ export function listAllWorlds(): World[] {
   return db.query("SELECT * FROM worlds ORDER BY created_at").all() as World[];
 }
 export function listWorldsOwnedBy(userId: string): World[] {
-  return db.query("SELECT * FROM worlds WHERE owner_user_id = ? AND status='active' ORDER BY created_at").all(userId) as World[];
+  return db.query("SELECT * FROM worlds WHERE owner_user_id = ? AND status='active' AND mv_world_name <> 'world' ORDER BY created_at").all(userId) as World[];
 }
 export function listWorldsSharedWith(userId: string): Array<World & { owner_username: string }> {
   return db
@@ -199,10 +199,47 @@ function ownerCommandGrants(uuid: string, mv: string): string[] {
   return OWNER_CMD_NODES.map((n) => `lp user ${uuid} permission set minecraft.command.${n} true world=${mv}`);
 }
 
+// The shared lobby is registered in the DB (so it shows on the Worlds page with
+// Notes / Hop), but it is OPEN: everyone may enter and build there. It must never
+// be provisioned like a private world — `passthrough deny` + owner-only entry
+// would lock every other player out of building in the world they spawn in.
+// Every grant/revoke helper below is a no-op for it.
+export const LOBBY_MV = "world";
+export function isLobby(mv: string): boolean { return mv === LOBBY_MV; }
+
+/** Usernames of panel admins — they may enter (view) every world in-game. */
+function adminUsernames(): string[] {
+  return (db.query("SELECT username FROM users WHERE is_admin = 1").all() as Array<{ username: string }>).map((r) => r.username);
+}
+
+function activePrivateWorlds(): World[] {
+  return (db.query("SELECT * FROM worlds WHERE status='active'").all() as World[]).filter((w) => !isLobby(w.mv_world_name));
+}
+
+/** Give an admin entry (view) to every private world. Call on promote/rename. */
+export async function grantAdminEntry(username: string): Promise<string[]> {
+  const u = offlineUuid(username);
+  return rconAll(activePrivateWorlds().map((w) => `lp user ${u} permission set multiverse.access.${w.mv_world_name} true`));
+}
+
+/** Remove the admin-entry grant from every world this account neither owns nor
+ *  is shared on. Call on demote/delete, and for the OLD name on rename. */
+export async function revokeAdminEntry(username: string, userId: string): Promise<string[]> {
+  const u = offlineUuid(username);
+  const keep = new Set((db.query("SELECT world_id FROM world_shares WHERE grantee_user_id = ?").all(userId) as Array<{ world_id: string }>).map((r) => r.world_id));
+  return rconAll(activePrivateWorlds()
+    .filter((w) => w.owner_user_id !== userId && !keep.has(w.id))
+    .map((w) => `lp user ${u} permission unset multiverse.access.${w.mv_world_name}`));
+}
+
 /** One-time per-world setup at create/import. __global__ auto-instantiates on flag. */
 export async function provisionWorld(mv: string, ownerUsername: string): Promise<string[]> {
+  if (isLobby(mv)) return [];
   const o = offlineUuid(ownerUsername);
   return rconAll([
+    // Admins can ENTER every world (to view members' builds). Entry only: no
+    // WorldGuard membership, so they can't build there unless shared.
+    ...adminUsernames().map((a) => `lp user ${offlineUuid(a)} permission set multiverse.access.${mv} true`),
     `rg flag -w ${mv} __global__ passthrough deny`,   // build only for members/owners
     `rg addowner -w ${mv} __global__ ${o}`,           // owner can always build
     `lp user ${o} permission set multiverse.access.${mv} true`, // owner can enter
@@ -212,12 +249,14 @@ export async function provisionWorld(mv: string, ownerUsername: string): Promise
 
 /** Strip a (previous) owner's world-scoped op command nodes (rename/transfer). */
 export async function revokeOwnerCommands(mv: string, ownerUsername: string): Promise<string[]> {
+  if (isLobby(mv)) return [];
   const o = offlineUuid(ownerUsername);
   return rconAll(OWNER_CMD_NODES.map((n) => `lp user ${o} permission unset minecraft.command.${n} world=${mv}`));
 }
 
 /** Grant build access to a user in a world (entry + build). */
 export async function grantBuild(username: string, mv: string): Promise<string[]> {
+  if (isLobby(mv)) return [];
   const u = offlineUuid(username);
   return rconAll([
     `rg addmember -w ${mv} __global__ ${u}`,
@@ -227,10 +266,13 @@ export async function grantBuild(username: string, mv: string): Promise<string[]
 
 /** Revoke build access (set false, not unset, for a deterministic deny). */
 export async function revokeBuild(username: string, mv: string): Promise<string[]> {
+  if (isLobby(mv)) return [];
   const u = offlineUuid(username);
+  const admin = !!db.query("SELECT 1 FROM users WHERE username = ? COLLATE NOCASE AND is_admin = 1").get(username);
   return rconAll([
     `rg removemember -w ${mv} __global__ ${u}`,
-    `lp user ${u} permission set multiverse.access.${mv} false`,
+    // Admins keep entry (view) to every world; only their build rights go.
+    `lp user ${u} permission set multiverse.access.${mv} ${admin ? "true" : "false"}`,
   ]);
 }
 
@@ -405,6 +447,12 @@ export async function transferInGameIdentity(userId: string, oldUsername: string
     await revokeOwnerCommands(w.mv_world_name, oldUsername).catch(() => {}); // strip old uuid's op nodes
     await provisionWorld(w.mv_world_name, newUsername).catch(() => {});      // re-grants under new uuid
   }
+  // 4b. Admin entry: strip it from the old uuid, grant it to the new one.
+  const isAdm = !!db.query("SELECT 1 FROM users WHERE id = ? AND is_admin = 1").get(userId);
+  if (isAdm) {
+    await revokeAdminEntry(oldUsername, userId).catch(() => {});
+    await grantAdminEntry(newUsername).catch(() => {});
+  }
   // 5. Shared-with worlds: revoke the old uuid's build grant, grant the new uuid's.
   for (const w of listWorldsSharedWith(userId)) {
     await revokeBuild(oldUsername, w.mv_world_name).catch(() => {});
@@ -446,6 +494,8 @@ export async function deleteWorld(world: World): Promise<{ ok: boolean; error?: 
     await revokeOwnerCommands(mv, owner.username).catch(() => {});
     await rconAll([`lp user ${offlineUuid(owner.username)} permission unset multiverse.access.${mv}`]).catch(() => {});
   }
+  // Admin entry grants (see provisionWorld) — don't let them outlive the world.
+  await rconAll(adminUsernames().map((a) => `lp user ${offlineUuid(a)} permission unset multiverse.access.${mv}`)).catch(() => {});
   for (const s of sharesForWorld(world.id)) await revokeBuild(s.username, mv).catch(() => {});
   // 3. Force-remove any leftover world directory (Bun's $ escapes the interpolation;
   //    mv is charset-validated above so this can't traverse).
@@ -470,6 +520,11 @@ export function bootstrapWorlds(): void {
   if (!getWorldByMv("cliffbuild")) {
     insertWorld({ id: randomUUID(), name: "Cliff Build", mv_world_name: "cliffbuild", owner_user_id: owner.id, world_type: "normal", seed: null, source: "import", status: "active" });
     console.log(`seeded world: cliffbuild (owner ${owner.username})`);
+  }
+  // Register the shared lobby (display-only; see LOBBY_MV — never provisioned).
+  if (!getWorldByMv(LOBBY_MV)) {
+    insertWorld({ id: randomUUID(), name: "Lobby", mv_world_name: LOBBY_MV, owner_user_id: owner.id, world_type: "normal", seed: null, source: "import", status: "active" });
+    console.log(`seeded world: ${LOBBY_MV} (lobby, open to all)`);
   }
 }
 

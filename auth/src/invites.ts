@@ -6,7 +6,7 @@ import { currentSession } from "./session.ts";
 import { signSession } from "./jwt.ts";
 import { setSessionCookie, clientIp, rateLimited } from "./session.ts";
 import { sendInvite, sendVerifyEmail } from "./mailer.ts";
-import { listWorldsSharedWith, listWorldsOwnedBy, revokeBuild, transferInGameIdentity } from "./worlds.ts";
+import { listWorldsSharedWith, listWorldsOwnedBy, revokeBuild, transferInGameIdentity, grantAdminEntry, revokeAdminEntry } from "./worlds.ts";
 import { rcon } from "./rcon.ts";
 import { icon } from "./layout.ts";
 
@@ -129,6 +129,12 @@ export function mountInvites(app: Hono): void {
       return c.redirect("/admin?err=" + encodeURIComponent("Cannot change the owner's role."));
     }
     db.run("UPDATE users SET is_admin = ? WHERE id = ?", [makeAdmin ? 1 : 0, c.req.param("id")]);
+    const tu = getUserById(c.req.param("id"));
+    if (tu) {
+      // In-game: admins can enter (view) every world; a demoted user loses that.
+      if (makeAdmin) await grantAdminEntry(tu.username).catch(() => {});
+      else await revokeAdminEntry(tu.username, tu.id).catch(() => {});
+    }
     return c.redirect("/admin?msg=" + encodeURIComponent(makeAdmin ? "Promoted to admin." : "Demoted to user."));
   });
 
@@ -174,6 +180,7 @@ export function mountInvites(app: Hono): void {
 
     // Capture their build grants before deletion so we can revoke them in-game.
     const shared = listWorldsSharedWith(targetId);
+    if (target.is_admin) await revokeAdminEntry(target.username, targetId).catch(() => {});
     const res = deleteUser(targetId);
     if (!res) return c.redirect("/admin?err=" + encodeURIComponent("User not found."));
     for (const w of shared) { try { await revokeBuild(res.username, w.mv_world_name); } catch { /* best-effort */ } }
