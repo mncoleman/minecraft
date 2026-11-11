@@ -19,3 +19,6 @@ cliff build*
 
 # OS cruft
 .DS_Store
+
+# ClaudeBuild compiles against the live server jar (copied by build-plugin/build.sh)
+build-plugin/lib/

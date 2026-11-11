@@ -1,0 +1,17 @@
+# Internal API used by mc-auth (token required). The port is NOT published by docker-compose;
+# it is reachable only on the internal Docker network (mc-auth -> mc-eagler).
+api-port: 25581
+# Bearer token. Generated on first start if empty; mc-auth reads it from this file.
+api-token: ""
+# Blocks placed per server tick (2 CPU box: keep modest).
+blocks-per-tick: 1000
+# Hard cap on blocks in one build request.
+max-blocks-per-build: 200000
+# Hard cap on blocks returned by one scan (blocks mode) / columns (heightmap mode).
+max-scan-blocks: 32768
+max-scan-columns: 16384
+# Kill switch for the packet-only "Claude" avatar (also: /claudebuild avatar off).
+avatar-enabled: true
+avatar-name: Claude
+# How many undo journals to keep on disk.
+keep-undo-jobs: 100

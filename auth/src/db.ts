@@ -471,6 +471,8 @@ export function deleteUser(userId: string): { username: string } | null {
     db.run("DELETE FROM teleport_history WHERE user_id = ?", [userId]);
     db.run("DELETE FROM saved_locations WHERE user_id = ?", [userId]);
     db.run("DELETE FROM tokens WHERE user_id = ?", [userId]);
+    db.run("DELETE FROM mcp_tokens WHERE user_id = ?", [userId]); // Claude connector tokens (table created by mcp.ts at boot)
+    db.run("DELETE FROM mcp_jobs WHERE user_id = ?", [userId]);
     db.run("DELETE FROM users WHERE id = ?", [userId]);
   })();
   return { username: u.username };

@@ -80,6 +80,7 @@ function adminPage(me: { sub: string; username: string; owner: boolean }, online
   const body = `
     <h1>Admin</h1>
     <p class="sub">Invite people, manage roles, and see every world. Only you and admins can invite.</p>
+    <p class="sub"><a href="/admin/claude">Claude connector →</a> let Claude build with you via MCP.</p>
 
     <h2>Invite a friend</h2>
     <div class="card">

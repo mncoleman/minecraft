@@ -1,0 +1,12 @@
+name: ClaudeBuild
+version: 0.1.0
+author: mncoleman
+description: Loopback build API for Claude (scan, batched place, undo) and a packet-only Claude avatar.
+main: com.mncoleman.mc.build.ClaudeBuildPlugin
+commands:
+  claudebuild:
+    description: "ClaudeBuild admin: /claudebuild avatar <on|off> | status | cancel"
+    permission: claudebuild.admin
+permissions:
+  claudebuild.admin:
+    default: op

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.mncoleman.mc</groupId>
+  <artifactId>claude-build</artifactId>
+  <version>0.1.0</version>
+  <packaging>jar</packaging>
+  <name>ClaudeBuild</name>
+  <description>Loopback build API (scan / batched place / undo) + a packet-only "Claude" avatar, driven by mc-auth's MCP endpoint.</description>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <dependencies>
+    <!-- The live server's patched Paper 1.12.2 jar: Bukkit API + CraftBukkit/NMS
+         (v1_12_R1, for the avatar packets) + bundled Gson. Copied into lib/ by
+         build.sh from server/data/cache; never shaded. -->
+    <dependency>
+      <groupId>com.destroystokyo.paper</groupId>
+      <artifactId>paper-server</artifactId>
+      <version>1.12.2</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/lib/patched_1.12.2.jar</systemPath>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>claude-build</finalName>
+  </build>
+</project>
