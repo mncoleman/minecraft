@@ -10,7 +10,7 @@ export interface Session {
   admin?: boolean;
 }
 
-export async function signSession(s: Session): Promise<string> {
+export async function signSession(s: Session, ttl?: string): Promise<string> {
   return await new SignJWT({
     username: s.username,
     provider: s.provider,
@@ -21,7 +21,7 @@ export async function signSession(s: Session): Promise<string> {
     .setIssuer(config.issuer)
     .setAudience(config.audience)
     .setIssuedAt()
-    .setExpirationTime(`${config.sessionTtlDays}d`)
+    .setExpirationTime(ttl ?? `${config.sessionTtlDays}d`)
     .sign(key);
 }
 

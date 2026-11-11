@@ -10,7 +10,7 @@ max-blocks-per-build: 200000
 # Hard cap on blocks returned by one scan (blocks mode) / columns (heightmap mode).
 max-scan-blocks: 32768
 max-scan-columns: 16384
-# Kill switch for the packet-only "Claude" avatar (also: /claudebuild avatar off).
+# Kill switch for the packet-only "Claude" avatar (also: /claude avatar off).
 avatar-enabled: true
 avatar-name: Claude
 # How many undo journals to keep on disk.

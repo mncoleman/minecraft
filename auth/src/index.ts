@@ -191,4 +191,5 @@ console.log("providers:", providersEnabled());
 // Bun's default maxRequestBodySize (128MiB) is smaller than the world upload
 // cap below (400MB) — raise it to match, or large world .zip uploads get a
 // bare 413 before the request even reaches the /worlds/upload handler.
-export default { port: config.port, fetch: app.fetch, maxRequestBodySize: 400 * 1024 * 1024 };
+// idleTimeout (seconds): the /chat/stream live feed sends a keepalive at least every ~25s.
+export default { port: config.port, fetch: app.fetch, maxRequestBodySize: 400 * 1024 * 1024, idleTimeout: 120 };

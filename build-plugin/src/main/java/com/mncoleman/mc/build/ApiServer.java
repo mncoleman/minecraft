@@ -45,7 +45,7 @@ public final class ApiServer {
         this.token = token;
         server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/", this::handle);
-        server.setExecutor(Executors.newFixedThreadPool(12));
+        server.setExecutor(Executors.newFixedThreadPool(16));
         server.start();
         plugin.getLogger().info("Build API listening on :" + port);
     }
@@ -69,6 +69,8 @@ public final class ApiServer {
                 case "/job": out = job(body); break;
                 case "/undo": out = undo(body); break;
                 case "/say": out = say(body); break;
+                case "/chat": out = chat(body); break;
+                case "/container": out = container(body); break;
                 case "/rail_plan": out = railPlan(body); break;
                 case "/rail_build": out = railBuild(body); break;
                 case "/rail_verify": out = railVerify(body); break;
@@ -157,6 +159,86 @@ public final class ApiServer {
         if (msg.length() > 256) msg = msg.substring(0, 256);
         String m = msg;
         return sync(() -> { plugin.avatar().say(m); JsonObject o = new JsonObject(); o.addProperty("ok", true); return o; });
+    }
+
+    /** Read or fill a container block (chest, dispenser, dropper, hopper, furnace, brewing stand...). */
+    @SuppressWarnings("deprecation")
+    private JsonObject container(JsonObject b) throws Exception {
+        String world = reqStr(b, "world");
+        int[] pos = vec(b, "pos");
+        if (pos[1] < 0 || pos[1] > 255) throw new IllegalArgumentException("y must be 0-255");
+        String mode = b.has("mode") ? b.get("mode").getAsString() : "read"; // read | set | add | clear
+        if (!mode.matches("read|set|add|clear")) throw new IllegalArgumentException("mode: read | set | add | clear");
+        java.util.List<org.bukkit.inventory.ItemStack> stacks = new java.util.ArrayList<>();
+        if (mode.equals("set") || mode.equals("add")) {
+            if (!b.has("items") || !b.get("items").isJsonArray()) throw new IllegalArgumentException("'items' must be [{item, count, data?}, ...]");
+            for (JsonElement e : b.getAsJsonArray("items")) {
+                JsonObject it = e.getAsJsonObject();
+                String name = reqStr(it, "item").trim().toLowerCase().replaceFirst("^minecraft:", "");
+                org.bukkit.Material m = org.bukkit.Material.matchMaterial(name);
+                if (m == null) { org.bukkit.Material v = Bukkit.getUnsafe().getMaterialFromInternalName(name); if (v != null && v != org.bukkit.Material.AIR) m = v; }
+                if (m == null) {
+                    // vanilla item ids the Bukkit enum names differently
+                    java.util.Map<String, String> alias = new java.util.HashMap<>();
+                    alias.put("golden_apple", "GOLDEN_APPLE"); alias.put("cooked_beef", "COOKED_BEEF"); alias.put("tnt", "TNT");
+                    alias.put("fire_charge", "FIREBALL"); alias.put("splash_potion", "SPLASH_POTION"); alias.put("experience_bottle", "EXP_BOTTLE");
+                    alias.put("snowball", "SNOW_BALL"); alias.put("egg", "EGG"); alias.put("firework_rocket", "FIREWORK"); alias.put("fireworks", "FIREWORK");
+                    String a = alias.get(name); if (a != null) m = org.bukkit.Material.matchMaterial(a);
+                }
+                if (m == null || m == org.bukkit.Material.AIR) throw new IllegalArgumentException("unknown item '" + name + "'");
+                if (java.util.EnumSet.of(org.bukkit.Material.MONSTER_EGG, org.bukkit.Material.MONSTER_EGGS, org.bukkit.Material.COMMAND, org.bukkit.Material.COMMAND_CHAIN,
+                        org.bukkit.Material.COMMAND_REPEATING, org.bukkit.Material.COMMAND_MINECART, org.bukkit.Material.STRUCTURE_BLOCK, org.bukkit.Material.BARRIER,
+                        org.bukkit.Material.BEDROCK, org.bukkit.Material.MOB_SPAWNER, org.bukkit.Material.KNOWLEDGE_BOOK).contains(m))
+                    throw new IllegalArgumentException("'" + name + "' isn't allowed in containers");
+                int count = it.has("count") ? Math.max(1, Math.min(64, it.get("count").getAsInt())) : 1;
+                short data = it.has("data") ? (short) Math.max(0, Math.min(32767, it.get("data").getAsInt())) : 0;
+                stacks.add(new org.bukkit.inventory.ItemStack(m, count, data));
+            }
+            if (stacks.size() > 54) throw new IllegalArgumentException("max 54 stacks");
+        }
+        return sync(() -> {
+            World w = Bukkit.getWorld(world);
+            if (w == null) throw new IllegalArgumentException("world not loaded: " + world);
+            int cx = pos[0] >> 4, cz = pos[2] >> 4;
+            if (!w.isChunkLoaded(cx, cz) && !w.loadChunk(cx, cz, false)) throw new IllegalArgumentException("that spot is in ungenerated terrain");
+            org.bukkit.block.BlockState st = w.getBlockAt(pos[0], pos[1], pos[2]).getState();
+            if (!(st instanceof org.bukkit.inventory.InventoryHolder))
+                throw new IllegalArgumentException("no container at " + pos[0] + " " + pos[1] + " " + pos[2] + " (found " + BlockSpec.name(st.getTypeId(), st.getRawData()) + ")");
+            org.bukkit.inventory.Inventory inv = ((org.bukkit.inventory.InventoryHolder) st).getInventory();
+            int notFit = 0;
+            if (mode.equals("set") || mode.equals("clear")) inv.clear();
+            if (mode.equals("set") || mode.equals("add")) {
+                for (org.bukkit.inventory.ItemStack is : stacks) for (org.bukkit.inventory.ItemStack left : inv.addItem(is).values()) notFit += left.getAmount();
+            }
+            JsonObject o = new JsonObject();
+            o.addProperty("block", BlockSpec.name(st.getTypeId(), st.getRawData()));
+            o.addProperty("slots", inv.getSize());
+            JsonArray items = new JsonArray();
+            for (int i = 0; i < inv.getSize(); i++) {
+                org.bukkit.inventory.ItemStack is = inv.getItem(i);
+                if (is == null || is.getType() == org.bukkit.Material.AIR) continue;
+                JsonObject e = new JsonObject();
+                e.addProperty("slot", i); e.addProperty("item", is.getType().name().toLowerCase());
+                if (is.getDurability() != 0) e.addProperty("data", is.getDurability());
+                e.addProperty("count", is.getAmount());
+                items.add(e);
+            }
+            o.add("contents", items);
+            if (notFit > 0) o.addProperty("did_not_fit", notFit);
+            return o;
+        });
+    }
+
+    private static final java.util.concurrent.Semaphore CHAT_WAITERS = new java.util.concurrent.Semaphore(4);
+
+    private JsonObject chat(JsonObject b) throws Exception {
+        long since = b.has("since") && !b.get("since").isJsonNull() ? b.get("since").getAsLong() : -1;
+        int limit = b.has("limit") ? Math.max(1, Math.min(200, b.get("limit").getAsInt())) : 50;
+        long wait = b.has("wait_ms") ? Math.max(0, Math.min(25000, b.get("wait_ms").getAsLong())) : 0;
+        // At most 4 long-polls held at once so live feeds can't starve the API pool.
+        if (wait > 0 && !CHAT_WAITERS.tryAcquire()) wait = 0;
+        else if (wait > 0) { try { return plugin.chat().read(since, limit, wait); } finally { CHAT_WAITERS.release(); } }
+        return plugin.chat().read(since, limit, wait);
     }
 
     // ── rail lines ────────────────────────────────────────────────────────────

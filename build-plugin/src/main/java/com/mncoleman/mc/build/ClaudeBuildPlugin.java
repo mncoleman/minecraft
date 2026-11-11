@@ -10,6 +10,8 @@ public final class ClaudeBuildPlugin extends JavaPlugin {
     private JobManager jobs;
     private Avatar avatar;
     private ApiServer api;
+    private final ChatLog chat = new ChatLog();
+    public ChatLog chat() { return chat; }
 
     public JobManager jobs() { return jobs; }
     public Avatar avatar() { return avatar; }
@@ -26,6 +28,7 @@ public final class ClaudeBuildPlugin extends JavaPlugin {
             saveConfig();
             getLogger().info("Generated a new api-token in config.yml");
         }
+        getServer().getPluginManager().registerEvents(chat, this);
         avatar = new Avatar(this);
         jobs = new JobManager(this);
         try {
@@ -43,6 +46,11 @@ public final class ClaudeBuildPlugin extends JavaPlugin {
 
     @Override
     public boolean onCommand(CommandSender s, Command cmd, String label, String[] args) {
+        if (args.length >= 2 && args[0].equalsIgnoreCase("avatar") && args[1].equalsIgnoreCase("test")) {
+            if (!(s instanceof org.bukkit.entity.Player)) { s.sendMessage("Run this in game."); return true; }
+            s.sendMessage(avatar.test((org.bukkit.entity.Player) s));
+            return true;
+        }
         if (args.length >= 2 && args[0].equalsIgnoreCase("avatar")) {
             boolean on = args[1].equalsIgnoreCase("on");
             avatar.setEnabled(on);

@@ -77,9 +77,29 @@ public final class Avatar {
         String line = ChatColor.LIGHT_PURPLE + "<" + displayName() + "> " + ChatColor.RESET + message;
         for (Player p : Bukkit.getOnlinePlayers()) p.sendMessage(line);
         plugin.getLogger().info("[say] " + message);
+        plugin.chat().add("claude", displayName(), null, message);
     }
 
     public void shutdown() { despawnAll(); }
+
+    /** Debug: show the avatar 3 blocks in front of a player for 15 s; returns a status line. */
+    public String test(Player p) {
+        if (broken) return "Avatar is disabled after an earlier error (see console); /claude avatar on resets it.";
+        try {
+            org.bukkit.Location l = p.getLocation();
+            double yawR = Math.toRadians(l.getYaw());
+            double x = l.getX() - Math.sin(yawR) * 3, z = l.getZ() + Math.cos(yawR) * 3;
+            float face = (l.getYaw() + 180f) % 360f; // look back at the player
+            if (despawnTask != -1) { Bukkit.getScheduler().cancelTask(despawnTask); despawnTask = -1; }
+            despawnAll();
+            spawn(l.getWorld(), x, l.getY(), z, face, 0f);
+            for (int k = 0; k < 15; k++) Bukkit.getScheduler().runTaskLater(plugin, () -> { if (npc != null) sendAll(new PacketPlayOutAnimation(npc, 0)); }, 20L * k + 10);
+            despawnTask = Bukkit.getScheduler().runTaskLater(plugin, () -> { despawnTask = -1; despawnAll(); }, 300L).getTaskId();
+            String msg = "Avatar shown at " + Math.round(x) + " " + Math.round(l.getY()) + " " + Math.round(z) + " to " + viewers.size() + " player(s), entity id " + npc.getId() + ", for 15s.";
+            plugin.getLogger().info("[avatar test] " + msg);
+            return msg;
+        } catch (Throwable t) { fail(t); return "Avatar failed: " + t; }
+    }
 
     public void setEnabled(boolean on) {
         plugin.getConfig().set("avatar-enabled", on);
@@ -98,6 +118,7 @@ public final class Avatar {
         npcWorld = w.getName();
         viewers.clear();
         refreshViewers(w);
+        plugin.getLogger().info("[avatar] spawned in " + npcWorld + " at " + Math.round(x) + " " + Math.round(y) + " " + Math.round(z) + " for " + viewers.size() + " viewer(s)");
     }
 
     private void refreshViewers(World w) {

@@ -5,7 +5,9 @@ description: Loopback build API for Claude (scan, batched place, undo) and a pac
 main: com.mncoleman.mc.build.ClaudeBuildPlugin
 commands:
   claudebuild:
-    description: "ClaudeBuild admin: /claudebuild avatar <on|off> | status | cancel"
+    description: "Claude admin: /claude avatar <on|off|test> | status | cancel"
+    aliases: [claude]
+    usage: "/claude avatar <on|off|test> | status | cancel"
     permission: claudebuild.admin
 permissions:
   claudebuild.admin:
