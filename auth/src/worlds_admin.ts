@@ -65,6 +65,9 @@ function mapUrl(seed: string): string {
 function worldsPage(me: { sub: string; username: string; admin: boolean; owner: boolean }, onlineAll: OnlinePlayer[], msg?: string, err?: string): string {
   const owned = listWorldsOwnedBy(me.sub);
   const shared = listWorldsSharedWith(me.sub);
+  // Admins also see every other active world (not owned by / shared with them).
+  const mine = new Set([...owned, ...shared].map((w) => w.id));
+  const others = me.admin ? listAllWorlds().filter((w) => w.status === "active" && !mine.has(w.id)) : [];
   // Privacy: non-admins only see friends, world co-members, and themselves online.
   const visible = me.admin ? null : visibleOnlineUsernames(me.sub);
   const online = visible ? onlineAll.filter((p) => visible.has(p.name.toLowerCase())) : onlineAll;
@@ -121,6 +124,13 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
       <span><b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">— shared by ${esc(w.owner_username)}</span></span>
       ${cardLinks(w)}</div></div>`;
 
+  const adminBlock = (w: World) => {
+    const members = sharesForWorld(w.id).map((m) => esc(m.username)).join(", ");
+    return `<div class="world"><div class="row" style="justify-content:space-between;margin:0">
+      <span><b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">— owner: ${esc(userById(w.owner_user_id)?.username || "?")}${members ? ` · members: ${members}` : ""}</span></span>
+      ${cardLinks(w)}</div></div>`;
+  };
+
   // One online player → a row with a "Join →" button when the caller can build
   // in that player's current world (registered + shared/owned/admin, or the open
   // lobby which isn't a registered world). Clicking it teleports you to them.
@@ -157,6 +167,10 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
 
     <h2>Shared with me</h2>
     ${shared.length ? shared.map(sharedBlock).join("") : '<p class="hint">Nothing shared with you yet.</p>'}
+${me.admin ? `
+    <h2>All other worlds <span class="hint">(admin)</span></h2>
+    ${others.length ? others.map(adminBlock).join("") : '<p class="hint">No other worlds.</p>'}
+` : ""}
 
     <h2>Create a world</h2>
     <div class="card">
