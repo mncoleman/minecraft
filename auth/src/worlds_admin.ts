@@ -82,7 +82,7 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
 
   const cardLinks = (w: World) =>
     `<span class="row" style="margin:0;gap:.4rem">
-      ${w.seed ? `<code class="hint" style="font-size:.74rem" title="World seed (Java 1.12.2) — select to copy">${esc(w.seed)}</code>` : ""}
+      ${w.seed ? `<code class="hint" data-copy style="font-size:.74rem" title="World seed (Java 1.12.2) — click to copy">${esc(w.seed)}</code>` : ""}
       <a class="pill" href="/worlds/${w.id}/notes">${icon("note")} Notes</a>
       ${isLobby(w.mv_world_name) && !me.admin ? "" : `<a class="pill" href="/worlds/${w.id}/console">${icon("terminal")} Command</a>`}
       ${w.seed ? `<a class="pill" href="${mapUrl(w.seed)}" target="_blank" rel="noopener" title="Open the Chunkbase seed map — set the version to Java 1.12">${icon("map")} Map</a>` : ""}

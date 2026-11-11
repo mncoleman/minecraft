@@ -14,6 +14,8 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -67,6 +69,9 @@ public final class ApiServer {
                 case "/job": out = job(body); break;
                 case "/undo": out = undo(body); break;
                 case "/say": out = say(body); break;
+                case "/rail_plan": out = railPlan(body); break;
+                case "/rail_build": out = railBuild(body); break;
+                case "/rail_verify": out = railVerify(body); break;
                 case "/cancel": out = sync(() -> { JsonObject o = new JsonObject(); o.addProperty("cancelled", plugin.jobs().cancelCurrent()); return o; }); break;
                 default: send(ex, 404, err("not found")); return;
             }
@@ -152,6 +157,104 @@ public final class ApiServer {
         if (msg.length() > 256) msg = msg.substring(0, 256);
         String m = msg;
         return sync(() -> { plugin.avatar().say(m); JsonObject o = new JsonObject(); o.addProperty("ok", true); return o; });
+    }
+
+    // ── rail lines ────────────────────────────────────────────────────────────
+    private static final java.util.concurrent.Semaphore PLANNING = new java.util.concurrent.Semaphore(1);
+
+    private JsonObject railPlan(JsonObject b) throws Exception {
+        if (!PLANNING.tryAcquire()) throw new IllegalArgumentException("the planner is busy with another route; try again in a few seconds");
+        try { return railPlanLocked(b); } finally { PLANNING.release(); }
+    }
+
+    private JsonObject railPlanLocked(JsonObject b) throws Exception {
+        RailPlanner.Params p = new RailPlanner.Params();
+        p.world = reqStr(b, "world");
+        if (!b.has("points") || !b.get("points").isJsonArray()) throw new IllegalArgumentException("'points' must be [[x,z] or [x,y,z], ...] (from, waypoints..., to)");
+        for (JsonElement e : b.getAsJsonArray("points")) {
+            JsonArray a = e.getAsJsonArray();
+            long x, y = Integer.MIN_VALUE, z;
+            if (a.size() == 2) { x = a.get(0).getAsLong(); z = a.get(1).getAsLong(); }
+            else if (a.size() == 3) { x = a.get(0).getAsLong(); y = a.get(1).getAsLong(); z = a.get(2).getAsLong(); if (y < 6 || y > 250) throw new IllegalArgumentException("point y must be 6-250"); }
+            else throw new IllegalArgumentException("each point is [x,z] or [x,y,z]");
+            if (Math.abs(x) > 29_999_000 || Math.abs(z) > 29_999_000) throw new IllegalArgumentException("point out of world bounds");
+            p.points.add(new int[]{(int) x, (int) y, (int) z});
+        }
+        if (p.points.size() < 2 || p.points.size() > 12) throw new IllegalArgumentException("give 2-12 points (from, up to 10 waypoints, to)");
+        for (int k = 1; k < p.points.size(); k++) {
+            int[] a = p.points.get(k - 1), c = p.points.get(k);
+            if (Math.abs(a[0] - c[0]) + Math.abs(a[2] - c[2]) > 2500) throw new IllegalArgumentException("a leg is longer than 2500 blocks; add waypoints or build it as separate lines");
+        }
+        if (b.has("style")) { p.style = b.get("style").getAsString(); if (!p.style.matches("auto|surface|tunnel|elevated")) throw new IllegalArgumentException("style: auto | surface | tunnel | elevated"); }
+        if (b.has("depth")) p.depth = Math.max(3, Math.min(60, b.get("depth").getAsInt()));
+        if (b.has("level") && !b.get("level").isJsonNull()) p.level = Math.max(6, Math.min(250, b.get("level").getAsInt()));
+        if (b.has("grade")) p.grade = Math.max(2, Math.min(8, b.get("grade").getAsInt()));
+        if (b.has("width")) p.width = b.get("width").getAsInt() >= 3 ? 3 : 1;
+        if (b.has("clearance")) p.clearance = Math.max(2, Math.min(40, b.get("clearance").getAsInt()));
+        if (b.has("band")) p.band = Math.max(4, Math.min(64, b.get("band").getAsInt()));
+        p.fullLining = b.has("full_lining") && b.get("full_lining").getAsBoolean();
+        p.shuttle = b.has("shuttle") && b.get("shuttle").getAsBoolean();
+        p.lining = BlockSpec.parse(b.has("lining") ? b.get("lining").getAsString() : "stonebrick");
+        p.bed = BlockSpec.parse(b.has("bed") ? b.get("bed").getAsString() : "stonebrick");
+        p.light = BlockSpec.parse(b.has("light") ? b.get("light").getAsString() : "glowstone");
+        if (!java.util.EnumSet.of(org.bukkit.Material.GLOWSTONE, org.bukkit.Material.SEA_LANTERN, org.bukkit.Material.JACK_O_LANTERN, org.bukkit.Material.REDSTONE_LAMP_ON).contains(p.light.material))
+            throw new IllegalArgumentException("light must be glowstone, sea_lantern or lit_pumpkin");
+        for (BlockSpec s : new BlockSpec[]{p.lining, p.bed}) if (!s.material.isSolid() || BlockSpec.HEAVY.contains(s.material)) throw new IllegalArgumentException("lining/bed must be a solid, non-falling block");
+        World w = sync(() -> Bukkit.getWorld(p.world));
+        if (w == null) throw new IllegalArgumentException("world not loaded: " + p.world);
+        Set<Long> chunks = RailPlanner.corridorChunks(p);
+        if (chunks.size() > 800) throw new IllegalArgumentException("route corridor is too large (" + chunks.size() + " chunks); add waypoints closer together or reduce band");
+        Map<Long, org.bukkit.ChunkSnapshot> snaps = RailPlanner.loadSnapshots(plugin, w, chunks).get(90, TimeUnit.SECONDS);
+        RailPlanner.Plan plan = RailPlanner.plan(p, snaps);
+        int cap = plugin.getConfig().getInt("max-blocks-per-build", 200000);
+        if (plan.ops.size() > cap) throw new IllegalArgumentException("this line needs " + plan.ops.size() + " block changes (max " + cap + "); split it with waypoints");
+        return plan.preview;
+    }
+
+    private JsonObject railBuild(JsonObject b) throws Exception {
+        RailPlanner.Plan plan = RailPlanner.PLANS.get(reqStr(b, "plan_id"));
+        if (plan == null || System.currentTimeMillis() - plan.created > RailPlanner.TTL_MS) throw new IllegalArgumentException("unknown or expired plan (plans last 15 minutes, since the terrain changes as people build) — plan it again");
+        java.util.LinkedHashMap<Long, Ops.Placement> ops;
+        synchronized (plan) { ops = plan.ops; plan.ops = null; }
+        if (ops == null) throw new IllegalArgumentException("this plan was already built — plan again for another copy");
+        JobManager.Job j;
+        try { j = plugin.jobs().submitBuild(plan.world, str(b, "actor"), "rail line " + plan.id, ops.values(), false); }
+        catch (RuntimeException e) { plan.ops = ops; throw e; }   // queue full etc.: plan stays usable
+        JsonObject st = waitFor(j, b);
+        st.addProperty("plan_id", plan.id);
+        if ("done".equals(j.state)) {
+            Thread.sleep(300); // let redstone settle a few ticks
+            st.add("verification", railVerify(b));
+        }
+        return st;
+    }
+
+    /** Walk the planned track: every rail present with the planned shape, every boost rail powered. */
+    private JsonObject railVerify(JsonObject b) throws Exception {
+        RailPlanner.Plan plan = RailPlanner.PLANS.get(reqStr(b, "plan_id"));
+        if (plan == null) throw new IllegalArgumentException("unknown or expired plan");
+        return sync(() -> {
+            World w = Bukkit.getWorld(plan.world);
+            if (w == null) throw new IllegalArgumentException("world not loaded: " + plan.world);
+            int missing = 0, wrongShape = 0, unpowered = 0, noBed = 0;
+            JsonArray problems = new JsonArray();
+            for (int i = 0; i < plan.xs.length; i++) {
+                org.bukkit.block.Block bl = w.getBlockAt(plan.xs[i], plan.ys[i], plan.zs[i]);
+                String where = plan.xs[i] + " " + plan.ys[i] + " " + plan.zs[i];
+                if (bl.getTypeId() != plan.railId[i]) { missing++; if (problems.size() < 12) problems.add(new JsonPrimitive("no/odd rail at " + where + " (found " + BlockSpec.name(bl.getTypeId(), bl.getData()) + ")")); continue; }
+                int mask = plan.railId[i] == org.bukkit.Material.RAILS.getId() ? 0xF : 0x7;
+                if ((bl.getData() & mask) != (plan.railData[i] & mask)) { wrongShape++; if (problems.size() < 12) problems.add(new JsonPrimitive("rail shape differs at " + where)); }
+                if (plan.mustBePowered[i] && (bl.getData() & 8) == 0) { unpowered++; if (problems.size() < 12) problems.add(new JsonPrimitive("boost rail unpowered at " + where)); }
+                if (!bl.getRelative(0, -1, 0).getType().isSolid()) { noBed++; if (problems.size() < 12) problems.add(new JsonPrimitive("no solid block under rail at " + where)); }
+            }
+            JsonObject o = new JsonObject();
+            o.addProperty("track_blocks", plan.xs.length);
+            o.addProperty("missing_rails", missing); o.addProperty("wrong_shape", wrongShape);
+            o.addProperty("unpowered_boost_rails", unpowered); o.addProperty("unsupported_rails", noBed);
+            o.addProperty("ok", missing + wrongShape + unpowered + noBed == 0);
+            o.add("problems", problems);
+            return o;
+        }, 10);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

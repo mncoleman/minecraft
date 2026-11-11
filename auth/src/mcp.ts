@@ -159,6 +159,41 @@ const TOOLS = [
     },
   },
   {
+    name: "plan_rail",
+    description: [
+      "Plan a complete minecart line — route, heights, tunnels, bridges, power and stations — WITHOUT building it. Returns a preview (length, ride time, height profile, how much is tunnel/bridge, hazards it will seal, blocks to change) and a plan_id. Show the player the preview, then call build_rail.",
+      "points: [from, ...waypoints, to]. Each point is a saved place name (e.g. 'Village', see list_places), 'me' (the player's current spot), [x,z] (ground level) or [x,y,z] (exact track height). Ends become stations on the surface unless you give a y. Waypoints steer the route and can force a height (e.g. [x,30,z] to dive to y=30).",
+      "style: 'auto' (default — follows a smoothed ground line, tunnelling through bumps and bridging dips), 'surface' (hugs the ground), 'tunnel' (runs `depth` blocks under the surface, or at a fixed `level` y), 'elevated' (on supports `clearance` blocks up).",
+      "Rules it enforces: ramps only on straight track, at most 1 block of height per `grade` blocks (default 3), flat stations, boost rails on every ramp and every ~24 blocks on flats (redstone blocks underneath), tunnels 3 wide x 3 tall with glowstone every 8 blocks, water/lava/sand/gravel and cave openings sealed with the lining, bridge supports every 6 blocks.",
+      "Stations: a stop block with a button on top; arriving carts brake, press the button to launch. shuttle:true makes carts bounce between the ends forever instead.",
+    ].join("\n"),
+    inputSchema: {
+      type: "object",
+      properties: {
+        world: { type: "string" },
+        points: { type: "array", items: {}, minItems: 2, maxItems: 12, description: "[from, ...waypoints, to]: place name | 'me' | [x,z] | [x,y,z]" },
+        style: { type: "string", enum: ["auto", "surface", "tunnel", "elevated"] },
+        depth: { type: "integer", description: "tunnel: blocks below the surface (default 12)" },
+        level: { type: "integer", description: "tunnel: run level at this y instead of following the terrain" },
+        grade: { type: "integer", description: "blocks of track per 1 block of height change, 2-8 (default 3; 2 is steepest)" },
+        width: { type: "integer", enum: [1, 3], description: "tunnel width (default 3)" },
+        clearance: { type: "integer", description: "elevated: height above ground (default 4)" },
+        lining: { type: "string", description: "wall/seal block (default stonebrick)" },
+        bed: { type: "string", description: "block under the track (default stonebrick)" },
+        light: { type: "string", description: "tunnel light block (default glowstone)" },
+        full_lining: { type: "boolean", description: "face every tunnel wall with the lining (default: only seal hazards and openings)" },
+        shuttle: { type: "boolean" },
+        band: { type: "integer", description: "how far (blocks) the route may stray from the straight line between points (default 32)" },
+      },
+      required: ["world", "points"],
+    },
+  },
+  {
+    name: "build_rail",
+    description: "Build a line planned with plan_rail. Runs as one undoable job, then walks the finished track and reports any missing/unpowered rails. Undo with undo(job id).",
+    inputSchema: { type: "object", properties: { plan_id: { type: "string" } }, required: ["plan_id"] },
+  },
+  {
     name: "job_status",
     description: "Progress / result of a build or undo job (waits up to 20s if it's still running).",
     inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
@@ -182,10 +217,12 @@ const TOOLS = [
 
 const INSTRUCTIONS = `You are building in a private Minecraft server (Paper 1.12.2; players use 1.8 browser clients) together with the signed-in player.
 Axes: x increases EAST, z increases SOUTH, y is up (ground is usually y 60-80). Yaw 0 = facing south, 90 = west, 180 = north, 270 = east.
+For any minecart line, use plan_rail then build_rail — never hand-place track.
 Workflow that works: (1) get_status to see where the player is and which worlds you may build in; (2) resolve named places with list_places (or run_command 'execute <player> ~ ~ ~ locate Village'); (3) scan heightmap over the area to find the real ground y — never guess; (4) build in stages with clear labels; (5) scan blocks to verify each stage, fix with another build or undo. Tell the player in chat (say) what you're doing.
 Minecarts (1.12): rails need a solid block under them; max grade is 1 up per 1 across (rail data 2-5 ramps); powered rails ("golden_rail") only push when powered — put a redstone_block or redstone_torch under/next to them; one source powers up to 8 rails each way. Flat track: a powered rail every ~30 blocks keeps full speed; uphill: every 2-4 blocks. Unpowered powered rails BRAKE carts. Put a solid stop block at track ends; a station = powered rail against the stop block with a button or redstone_block. Powered rails can't curve; curves use plain rails.`;
 
 const sayLog = new Map<string, number[]>();
+const planOwners = new Map<string, { user: string; world: string; at: number }>();
 type ToolResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 const ok = (v: unknown): ToolResult => ({ content: [{ type: "text", text: typeof v === "string" ? v : JSON.stringify(v, null, 1) }] });
 const fail = (m: string): ToolResult => ({ content: [{ type: "text", text: m }], isError: true });
@@ -254,6 +291,55 @@ async function callTool(caller: Caller, name: string, a: any): Promise<ToolResul
         if (!canBuild(u, row.world)) return fail(`You no longer have build rights in '${row.world}'.`);
         return ok(await plugin("/undo", { id, actor: u.username, wait_ms: 20000 }, 40000));
       }
+      case "plan_rail": {
+        const mv = worldArg(a);
+        if (!canBuild(u, mv)) return fail(`You don't have build rights in '${mv}'. You can build in: ${buildableWorlds(u).join(", ")}.`);
+        if (!Array.isArray(a?.points) || a.points.length < 2 || a.points.length > 12) return fail("points: 2-12 entries [from, ...waypoints, to].");
+        const places = listSavedLocations(u.id, mv);
+        let mePos: number[] | null = null;
+        const points: number[][] = [];
+        for (const pt of a.points) {
+          if (typeof pt === "string") {
+            const name = pt.trim().toLowerCase();
+            if (name === "me" || name === "here") {
+              if (!mePos) {
+                const st = await plugin("/player", { name: u.username });
+                if (!st.online) return fail("You're not in the game, so 'me' has no position. Use a place name or coordinates.");
+                if (st.world !== mv) return fail(`You're in '${st.world}', not '${mv}'.`);
+                mePos = [st.block_x, st.block_z];
+              }
+              points.push(mePos);
+              continue;
+            }
+            const hit = places.find((p) => p.name.toLowerCase() === name) || places.find((p) => p.name.toLowerCase().includes(name));
+            if (!hit) return fail(`No saved place called '${pt}' in ${mv}. Saved here: ${places.map((p) => p.name).join(", ") || "none"}. Use save_place or coordinates.`);
+            points.push([hit.x, hit.z]); // ground level at that spot (station on the surface)
+            continue;
+          }
+          if (Array.isArray(pt) && (pt.length === 2 || pt.length === 3) && pt.every((n: unknown) => Number.isInteger(n))) {
+            if (Math.abs(pt[0]) > 29_999_000 || Math.abs(pt[pt.length - 1]) > 29_999_000) return fail("Point out of world bounds.");
+            points.push(pt as number[]);
+            continue;
+          }
+          return fail("Each point is a place name, 'me', [x,z] or [x,y,z].");
+        }
+        const body: Record<string, unknown> = { world: mv, points };
+        for (const k of ["style", "depth", "level", "grade", "width", "clearance", "lining", "bed", "light", "full_lining", "shuttle", "band"]) if (a?.[k] !== undefined) body[k] = a[k];
+        const pv = await plugin("/rail_plan", body, 120000);
+        const cutoff = Date.now() - 20 * 60_000;
+        for (const [k, v] of planOwners) if (v.at < cutoff) planOwners.delete(k);
+        planOwners.set(pv.plan_id, { user: u.id, world: mv, at: Date.now() });
+        return ok({ ...pv, next: "Describe this to the player (length, ride time, tunnel/bridge share, stations). If they're happy, call build_rail with this plan_id; otherwise re-plan with waypoints/style/grade changes." });
+      }
+      case "build_rail": {
+        const id = String(a?.plan_id ?? "");
+        const owner = planOwners.get(id);
+        if (!owner || owner.user !== u.id) return fail("Unknown plan (or not yours) — plan it again with plan_rail.");
+        if (!canBuild(u, owner.world)) return fail(`You no longer have build rights in '${owner.world}'.`);
+        const st = await plugin("/rail_build", { plan_id: id, actor: u.username, wait_ms: 25000 }, 70000);
+        db.run("INSERT OR IGNORE INTO mcp_jobs (job_id, user_id, world, label, created_at) VALUES (?,?,?,?,?)", [st.id, u.id, owner.world, "rail line " + id, now()]);
+        return ok({ ...st, next: st.verification?.ok ? "Built and verified. Tell the player where the stations are and to press the button on the stop block to launch." : "Check verification.problems; fix with build or undo(id)." });
+      }
       case "say": {
         const msg = String(a?.message ?? "").trim();
         if (!msg) return fail("Empty message.");
@@ -321,7 +407,7 @@ export function mountMcp(app: Hono): void {
     const caller = callerFromBearer(c);
     if (!caller) {
       c.header("WWW-Authenticate", 'Bearer realm="minecraft.mncoleman.com", error="invalid_token"');
-      return c.json({ error: "Unauthorized — create a token at /admin/claude." }, 401);
+      return c.json({ error: "Unauthorized — create a token at /claude." }, 401);
     }
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, 400); }
@@ -343,14 +429,20 @@ export function mountMcp(app: Hono): void {
     const when = (t: number | null) => (t ? new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "never");
     const url = `${config.publicBaseUrl || "https://minecraft.mncoleman.com"}/mcp`;
     const body = `
-      <p class="sub"><a href="/admin">← Admin</a></p>
-      <h1>Claude connector</h1>
-      <p class="sub">Lets Claude build with you: read the terrain, place blocks in batches, undo, chat as Claude. Admin-only for now, and it can only build where <b>you</b> have build rights.</p>
+      <h1>Claude</h1>
+      <p class="sub">Build with Claude: ask for things like <i>"an underground cart line from the village to the castle"</i> and Claude plans the route, shows you a preview, builds it, checks it, and can undo it. It reads the terrain, places blocks in batches and chats in game as Claude. Admin-only for now, and it only builds where <b>you</b> have build rights.</p>
+      <div class="card"><p style="margin:0 0 .4rem"><b>Set up (once per computer)</b></p>
+        <ol style="margin:0;padding-left:1.2rem;line-height:1.7">
+          <li>Create a token below and copy the setup command it shows.</li>
+          <li>Run that command in a terminal (or paste it into Claude Code in the desktop app).</li>
+          <li>Start a new Claude Code session and ask it to build something. Hit <b>Play</b> first if you want to watch.</li>
+        </ol>
+        <p class="hint" style="margin:.5rem 0 0">Turn the in-game Claude avatar off with <code>/claudebuild avatar off</code>. claude.ai's connectors need OAuth, which this doesn't support yet, so it's Claude Code only for now.</p></div>
       ${fresh ? `<div class="card"><p style="margin:0 0 .5rem"><b>Your new token — copy it now, it won't be shown again:</b></p>
-        <code style="word-break:break-all;display:block;margin-bottom:.8rem">${esc(fresh)}</code>
+        <div class="codeblock"><code>${esc(fresh)}</code></div>
         <p class="hint" style="margin:0 0 .3rem">Add it to Claude Code (terminal or the desktop app's Code tab):</p>
-        <code style="word-break:break-all;display:block">claude mcp add --scope user --transport http minecraft ${esc(url)} --header "Authorization: Bearer ${esc(fresh)}"</code>
-        <p class="hint" style="margin:.6rem 0 0">claude.ai's custom connectors need OAuth, which this doesn't support yet — use Claude Code for now.</p></div>` : ""}
+        <div class="codeblock"><code>claude mcp add --scope user --transport http minecraft ${esc(url)} --header "Authorization: Bearer ${esc(fresh)}"</code></div>
+        </div>` : ""}
       <div class="card">
         <form method="post" action="/admin/claude/token" class="row" style="margin:0">
           <input name="label" placeholder="label, e.g. macbook" maxlength="40" required/>
@@ -362,7 +454,7 @@ export function mountMcp(app: Hono): void {
         <span><b>${esc(r.label)}</b> <span class="hint">created ${when(r.created_at)} · last used ${when(r.last_used_at)}</span></span>
         <form method="post" action="/admin/claude/token/${r.id}/revoke" style="margin:0"><button class="btn-danger">Revoke</button></form>
       </div></div>`).join("") : '<p class="hint">No tokens yet.</p>'}`;
-    return shell({ title: "Claude connector", active: "admin", username: s.username, admin: true, body, msg });
+    return shell({ title: "Claude", active: "claude", username: s.username, admin: true, body, msg });
   };
   const adminSession = async (c: Context) => {
     if (c.req.method === "POST") {
@@ -373,7 +465,8 @@ export function mountMcp(app: Hono): void {
     const s = await currentSession(c); return s?.admin ? s : null;
   };
 
-  app.get("/admin/claude", async (c) => {
+  app.get("/admin/claude", (c) => c.redirect("/claude"));
+  app.get("/claude", async (c) => {
     const s = await adminSession(c); if (!s) return c.redirect("/worlds?err=" + encodeURIComponent("Admins only."));
     return c.html(page(s, undefined, c.req.query("msg")));
   });
@@ -382,7 +475,7 @@ export function mountMcp(app: Hono): void {
     const form = await c.req.parseBody();
     const label = String(form.label ?? "").trim().slice(0, 40) || "token";
     const n = (db.query("SELECT COUNT(*) AS n FROM mcp_tokens WHERE user_id = ?").get(s.sub) as { n: number }).n;
-    if (n >= 10) return c.redirect("/admin/claude?msg=" + encodeURIComponent("You have 10 tokens; revoke one first."));
+    if (n >= 10) return c.redirect("/claude?msg=" + encodeURIComponent("You have 10 tokens; revoke one first."));
     const raw = "mcb_" + randomBytes(24).toString("base64url");
     db.run("INSERT INTO mcp_tokens (id, user_id, token_hash, label, created_at) VALUES (?,?,?,?,?)", [randomUUID(), s.sub, sha256(raw), label, now()]);
     c.header("Cache-Control", "no-store");
@@ -391,6 +484,6 @@ export function mountMcp(app: Hono): void {
   app.post("/admin/claude/token/:id/revoke", async (c) => {
     const s = await adminSession(c); if (!s) return c.redirect("/worlds?err=" + encodeURIComponent("Admins only."));
     db.run("DELETE FROM mcp_tokens WHERE id = ? AND user_id = ?", [c.req.param("id"), s.sub]);
-    return c.redirect("/admin/claude?msg=" + encodeURIComponent("Token revoked."));
+    return c.redirect("/claude?msg=" + encodeURIComponent("Token revoked."));
   });
 }

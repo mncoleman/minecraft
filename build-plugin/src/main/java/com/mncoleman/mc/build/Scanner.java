@@ -17,7 +17,7 @@ import java.util.*;
 public final class Scanner {
     private static final String CHARS = "#abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!$%&*+=<>@^~";
 
-    private static final Set<Material> NOT_GROUND = EnumSet.of(
+    static final Set<Material> NOT_GROUND = EnumSet.of(
         Material.AIR, Material.LONG_GRASS, Material.DEAD_BUSH, Material.YELLOW_FLOWER, Material.RED_ROSE,
         Material.DOUBLE_PLANT, Material.SNOW, Material.LEAVES, Material.LEAVES_2, Material.LOG, Material.LOG_2,
         Material.BROWN_MUSHROOM, Material.RED_MUSHROOM, Material.SAPLING, Material.VINE, Material.SUGAR_CANE_BLOCK,

@@ -242,6 +242,18 @@ public final class JobManager {
 
     private void applyPhysics(World w, Job j) {
         WorldServer ws = ((CraftWorld) w).getHandle();
+        // Rails auto-shape against whatever neighbours exist when each is placed;
+        // once the whole track exists, put back the shape we planned (shape bits
+        // only — the power bit is the game's to set).
+        if ("build".equals(j.kind)) for (int i = 0; i < j.size(); i++) {
+            if (!j.applied[i]) continue;
+            Material m = Material.getMaterial(j.ids[i]);
+            if (m != Material.RAILS && m != Material.POWERED_RAIL && m != Material.DETECTOR_RAIL && m != Material.ACTIVATOR_RAIL) continue;
+            Block b = w.getBlockAt(j.xs[i], j.ys[i], j.zs[i]);
+            if (b.getTypeId() != j.ids[i]) continue;
+            int mask = m == Material.RAILS ? 0xF : 0x7;
+            if ((b.getData() & mask) != (j.datas[i] & mask)) b.setTypeIdAndData(j.ids[i], (byte) ((b.getData() & ~mask) | (j.datas[i] & mask)), false);
+        }
         for (int i = 0; i < j.size(); i++) {
             if (!j.applied[i]) continue;
             Material m = Material.getMaterial(j.ids[i]);

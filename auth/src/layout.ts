@@ -48,6 +48,12 @@ export const ICON_CSS = `
 @keyframes ic-shout{0%,92%,100%{transform:rotate(0)}4%{transform:rotate(-9deg)}8%{transform:rotate(0)}}`;
 
 export const SHARED_CSS = `
+.codeblock{position:relative;margin:.2rem 0 .6rem}
+.codeblock code{display:block;word-break:break-all;padding:.55rem 4.6rem .55rem .7rem;line-height:1.5}
+.codeblock .copy-btn{position:absolute;top:.35rem;right:.35rem;padding:.25rem .6rem;font-size:.78rem;border-radius:6px;background:#1f2631;color:#d7dde6;border:1px solid #2c333f;cursor:pointer}
+.codeblock .copy-btn:hover{background:#273040}
+.codeblock .copy-btn.done{background:#2f6f4f;border-color:#2f6f4f;color:#fff}
+code[data-copy]{cursor:pointer}
 :root{color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;font:15px/1.55 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#e8eaed;
@@ -259,7 +265,7 @@ export function feedbackWidget(): string {
 
 interface ShellOpts {
   title: string;
-  active: string; // play | worlds | friends | admin | guide | feedback | profile
+  active: string; // play | worlds | friends | claude | admin | guide | feedback | profile
   username: string;
   admin: boolean;
   body: string;
@@ -278,7 +284,7 @@ export function shell(o: ShellOpts): string {
     : "");
   // Single-key nav shortcuts (ignored while typing). 'a' only for admins.
   const navKeys: Record<string, string> = { w: "/worlds", f: "/friends", g: "/help", b: "/feedback", p: "/profile", y: "/" };
-  if (o.admin) navKeys.a = "/admin";
+  if (o.admin) { navKeys.a = "/admin"; navKeys.c = "/claude"; }
   return `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"/><link rel="apple-touch-icon" href="/email-logo.png"/>
@@ -289,6 +295,7 @@ export function shell(o: ShellOpts): string {
     ${tab("play", "/", "Play", "Y")}
     ${tab("worlds", "/worlds", "Worlds", "W")}
     ${tab("friends", "/friends", friendsLabel, "F")}
+    ${o.admin ? tab("claude", "/claude", "Claude", "C") : ""}
     ${o.admin ? tab("admin", "/admin", "Admin", "A") : ""}
     ${tab("guide", "/help", "Guide", "G")}
     ${tab("feedback", "/feedback", "Feedback", "B")}
@@ -302,6 +309,25 @@ export function shell(o: ShellOpts): string {
   ${o.body}
 </div>
 <script>(function(){var m=${JSON.stringify(navKeys)};document.addEventListener("keydown",function(e){if(e.ctrlKey||e.metaKey||e.altKey)return;var t=e.target||{},n=(t.tagName||"").toUpperCase();if(n==="INPUT"||n==="TEXTAREA"||n==="SELECT"||t.isContentEditable)return;var d=m[(e.key||"").toLowerCase()];if(d){e.preventDefault();location.href=d;}});})();</script>
+<script>(function(){
+  function copy(text, done){
+    function ok(){ done(true); }
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(ok, fallback); else fallback();
+    function fallback(){ var t=document.createElement("textarea"); t.value=text; t.style.position="fixed"; t.style.opacity="0"; document.body.appendChild(t); t.select(); try{ document.execCommand("copy"); ok(); }catch(e){ done(false); } document.body.removeChild(t); }
+  }
+  // Block code: <div class="codeblock"><code>…</code></div> gets a Copy button.
+  document.querySelectorAll(".codeblock").forEach(function(box){
+    var code = box.querySelector("code"); if (!code) return;
+    var b = document.createElement("button"); b.type="button"; b.className="copy-btn"; b.textContent="Copy";
+    b.addEventListener("click", function(){ copy(code.textContent, function(ok){ b.textContent = ok ? "Copied" : "Copy failed"; b.classList.toggle("done", ok); setTimeout(function(){ b.textContent="Copy"; b.classList.remove("done"); }, 1600); }); });
+    box.appendChild(b);
+  });
+  // Inline code with data-copy: click to copy.
+  document.querySelectorAll("code[data-copy]").forEach(function(c){
+    var orig = c.textContent, busy = false;
+    c.addEventListener("click", function(){ if (busy) return; copy(orig, function(ok){ if(!ok) return; busy = true; c.textContent="copied"; setTimeout(function(){ c.textContent=orig; busy = false; }, 1000); }); });
+  });
+})();</script>
 ${o.active !== "feedback" ? feedbackWidget() : ""}
 </body></html>`;
 }

@@ -13,6 +13,24 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    date: "2026-11-11",
+    title: "Claude can build with you (admin preview)",
+    items: [
+      "Admins can now connect Claude (the AI) from the new Claude tab and ask it to build things — like \"an underground cart line from the village to the castle\".",
+      "Claude plans the whole thing first (route, tunnels, bridges, powered rails, stations) and shows a preview before it builds. Every build can be undone.",
+      "While Claude builds, a player called Claude with a gold helmet appears next to the work.",
+      "It only builds where the person asking is allowed to build. It's admin-only while we try it out.",
+    ],
+  },
+  {
+    date: "2026-11-11",
+    title: "The lobby is on the Worlds page",
+    items: [
+      "The shared lobby now shows at the top of the Worlds tab with Notes and Hop in. Everyone can still build there, same as before.",
+      "Command Center: changing your game mode or giving yourself items now only works while you're standing in that world.",
+    ],
+  },
+  {
     date: "2026-06-25",
     title: "Run commands in your own world",
     items: [
