@@ -98,6 +98,18 @@ button{cursor:pointer;font-weight:600}
 .btn-primary:hover{background:#357f5a}
 .btn-ghost{background:#1b2029;border-color:#2c333f}
 .btn-danger{background:#5a2230;border-color:#7a2f40;font-size:.85rem;padding:.35rem .6rem}
+/* upload/create progress feedback */
+.spinner{display:inline-block;width:1em;height:1em;border:2px solid currentColor;border-right-color:transparent;
+  border-radius:50%;animation:spin .7s linear infinite;vertical-align:-.15em}
+@keyframes spin{to{transform:rotate(360deg)}}
+.progress-wrap{display:none;margin:.5rem 0}
+.progress-wrap.active{display:block}
+.progress-track{height:8px;border-radius:999px;background:#1b2029;border:1px solid #2c333f;overflow:hidden}
+.progress-fill{height:100%;width:0%;background:#2f6f4f;transition:width .2s ease}
+.progress-fill.indeterminate{width:35%;animation:progress-slide 1.1s ease-in-out infinite}
+@keyframes progress-slide{0%{margin-left:0%}50%{margin-left:65%}100%{margin-left:0%}}
+.progress-label{font-size:.85rem;color:#8b95a3;margin-top:.35rem}
+.progress-label.err{color:#e8a3ae}
 .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:.4rem 0}
 .row input,.row select{flex:1;min-width:140px}
 table{width:100%;border-collapse:collapse}

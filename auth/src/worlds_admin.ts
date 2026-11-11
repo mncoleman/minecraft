@@ -24,6 +24,12 @@ import { config } from "./config.ts";
 import { shell, icon } from "./layout.ts";
 
 const GLOBAL_WORLD_CAP = Number(process.env.WORLD_CAP || 8);
+// Names currently mid-upload. A retried upload attempt (see the client's
+// auto-retry on connection drop) reuses the same name; without this, an
+// earlier attempt that's still importing server-side wouldn't be caught by
+// the getWorldByMv/level.dat-exists checks and a second attempt could race it
+// into the same destination folder.
+const uploadsInProgress = new Set<string>();
 // How many worlds a non-admin may own. Admins are bound only by the global cap.
 const PER_USER_WORLD_CAP = Number(process.env.PER_USER_WORLD_CAP || 10);
 // Bukkit's default world folders. The shared lobby is the world named "world" and
@@ -157,16 +163,113 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
       <p class="hint" style="margin:.1rem 0 .7rem">Pick a short name (letters, numbers and dashes). You'll become its owner, and you can share build access with friends from your world card above.</p>
       ${atUserCap
         ? `<p class="hint" style="margin:0">You've reached your limit of ${PER_USER_WORLD_CAP} worlds. Ask an admin if you need more.</p>`
-        : `<form method="post" action="/worlds/create" class="row" style="margin:0" onsubmit="var b=this.querySelector('button');if(b.disabled)return false;b.disabled=true;b.textContent='Creating…'"><input name="name" placeholder="my world name" required/><input name="seed" placeholder="seed (optional)"/><button class="btn-primary">Create</button></form>
+        : `<form id="create-form" method="post" action="/worlds/create" class="row" style="margin:0"><input name="name" placeholder="my world name" required/><input name="seed" placeholder="seed (optional)"/><button class="btn-primary">Create</button></form>
+           <div class="progress-wrap" id="create-progress"><div class="progress-track"><div class="progress-fill" id="create-fill"></div></div><div class="progress-label" id="create-label"></div></div>
            <p class="hint" style="margin:.5rem 0 0">Leave the seed blank for a random world, or paste a seed (a number, or any word) to generate a specific one.${me.admin ? "" : ` You can create up to ${PER_USER_WORLD_CAP} worlds.`}</p>`}
       ${me.admin ? `
       <div style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid #232a35">
         <div class="hint" style="margin-bottom:.4rem">Admin tools</div>
-        ${me.owner ? `<form method="post" action="/worlds/upload" enctype="multipart/form-data" class="row"><input type="file" name="world" accept=".zip" required/><input name="name" placeholder="world name"/><button class="btn-ghost">Upload .zip</button></form>` : ""}
+        ${me.owner ? `<form id="upload-form" method="post" action="/worlds/upload" enctype="multipart/form-data" class="row"><input type="file" name="world" accept=".zip" required/><input name="name" placeholder="world name"/><button class="btn-ghost">Upload .zip</button></form>
+        <div class="progress-wrap" id="upload-progress"><div class="progress-track"><div class="progress-fill" id="upload-fill"></div></div><div class="progress-label" id="upload-label"></div></div>` : ""}
         <form method="post" action="/worlds/register" class="row"><input name="mv" placeholder="existing world folder (e.g. cliffbuild)" required/><input name="name" placeholder="display name"/><button class="btn-ghost">Register existing</button></form>
         <p class="hint" style="margin:.6rem 0 0">Upload a vanilla world .zip (overworld), or manage users &amp; invites in the <a href="/admin">Admin</a> tab.</p>
       </div>` : ""}
     </div>
+    <script>
+    (function(){
+      function wireProgress(formId, progressId, fillId, labelId, opts){
+        var form = document.getElementById(formId);
+        if (!form) return;
+        var wrap = document.getElementById(progressId);
+        var fill = document.getElementById(fillId);
+        var label = document.getElementById(labelId);
+
+        // One HTTP attempt. Resolves {ok:true, url} on a completed response,
+        // {ok:false} on a network-level failure (the connection dying mid-upload
+        // is common enough on large, long-running uploads that this is retried,
+        // not just reported).
+        function attemptOnce(url, body){
+          return new Promise(function(resolve){
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
+            if (opts.raw) xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+            if (opts.determinate) {
+              xhr.upload.addEventListener('progress', function(ev){
+                if (!ev.lengthComputable) return;
+                var pct = Math.round((ev.loaded / ev.total) * 100);
+                fill.style.width = pct + '%';
+                label.textContent = pct < 100 ? ('Uploading… ' + pct + '%') : 'Upload complete — importing on the server, this can take a moment for large worlds…';
+              });
+            }
+            xhr.addEventListener('load', function(){ resolve({ ok: true, url: xhr.responseURL || '/worlds' }); });
+            xhr.addEventListener('error', function(){ resolve({ ok: false }); });
+            xhr.addEventListener('abort', function(){ resolve({ ok: false }); });
+            xhr.send(body);
+          });
+        }
+
+        function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+
+        form.addEventListener('submit', function(e){
+          var btn = form.querySelector('button');
+          if (btn.disabled) return;
+          e.preventDefault();
+          btn.disabled = true;
+          wrap.classList.add('active');
+          label.classList.remove('err');
+          if (opts.determinate) {
+            fill.classList.remove('indeterminate');
+            fill.style.width = '0%';
+            label.textContent = 'Uploading… 0%';
+          } else {
+            fill.classList.add('indeterminate');
+            fill.style.width = '';
+            label.textContent = opts.busyLabel;
+          }
+
+          var url = form.action;
+          var body;
+          if (opts.raw) {
+            // Raw-body upload: send the file's bytes directly (no multipart
+            // wrapping — Bun's multipart parser drops large bodies intermittently).
+            var fileInput = form.querySelector('input[type=file]');
+            var file = fileInput.files[0];
+            var nameInput = form.querySelector('input[name=name]');
+            url += '?filename=' + encodeURIComponent(file.name) + '&name=' + encodeURIComponent(nameInput ? nameInput.value : '');
+            body = file;
+          } else {
+            body = new FormData(form);
+          }
+
+          var maxAttempts = opts.retries || 1;
+          (async function run(){
+            for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+              var result = await attemptOnce(url, body);
+              if (result.ok) {
+                window.location.href = result.url;
+                return;
+              }
+              if (attempt < maxAttempts) {
+                label.textContent = 'Connection dropped — retrying (' + (attempt + 1) + '/' + maxAttempts + ')…';
+                label.classList.add('err');
+                await sleep(1500);
+                label.classList.remove('err');
+                if (opts.determinate) fill.style.width = '0%';
+              } else {
+                label.textContent = 'Connection kept dropping after ' + maxAttempts + ' tries — this looks like a network issue on this connection rather than the server. Try again, ideally on a more stable connection (e.g. wired instead of Wi-Fi).';
+                label.classList.add('err');
+                fill.classList.remove('indeterminate');
+                fill.style.width = '0%';
+                btn.disabled = false;
+              }
+            }
+          })();
+        });
+      }
+      wireProgress('create-form', 'create-progress', 'create-fill', 'create-label', {determinate:false, busyLabel:'Creating your world…'});
+      wireProgress('upload-form', 'upload-progress', 'upload-fill', 'upload-label', {determinate:true, raw:true, retries:6});
+    })();
+    </script>
   `;
   return shell({ title: "Worlds", active: "worlds", username: me.username, admin: me.admin, body, msg, err });
 }
@@ -738,26 +841,75 @@ export function mountWorlds(app: Hono): void {
   // Upload a vanilla world .zip (admin). Streams to disk, unzips, validates,
   // places it in the game data dir (owned by uid 1001), and mv-imports it.
   app.post("/worlds/upload", async (c) => {
+    // Grab the body stream up front so every bail-out path below can drain it.
+    // Caddy is already relaying client bytes to us as they arrive regardless of
+    // what we do with them; sending a response while a large body is still mid-
+    // flight and unread is the classic "upstream responds before the request
+    // finishes" pattern that makes reverse proxies kill the connection with a
+    // 5xx instead of just passing our response through. Confirmed reproducible
+    // server-side (loopback, no client network involved): any early return here
+    // with a large body still arriving unread 5xx'd 10/10 times.
+    const body = c.req.raw.body;
+    const drain = async () => {
+      if (!body) return;
+      try {
+        const reader = body.getReader();
+        for (;;) {
+          const { done } = await reader.read();
+          if (done) break;
+        }
+      } catch { /* client gave up mid-drain — nothing left to do */ }
+    };
+    const bail = async (q: string) => { await drain(); return redirect(c, q); };
+
     const m = await me(c);
-    if (!m) return c.redirect("/login");
+    if (!m) { await drain(); return c.redirect("/login"); }
     // Owner-only: upload is the one path that writes files directly to the
     // game-data mount, so we keep its blast radius to the owner account.
-    if (!m.owner) return redirect(c, "?err=" + encodeURIComponent("Only the owner can upload worlds."));
+    if (!m.owner) return bail("?err=" + encodeURIComponent("Only the owner can upload worlds."));
     const GAMEDATA = process.env.GAMEDATA_DIR || "/gamedata";
-    const form = await c.req.parseBody();
-    const file = form["world"];
-    const nameRaw = String(form["name"] ?? "").trim();
-    if (!(file instanceof Blob)) return redirect(c, "?err=" + encodeURIComponent("No file uploaded."));
-    const mv = sanitizeWorldName(nameRaw || ((file as any).name || "world").replace(/\.zip$/i, ""));
-    if (!mv) return redirect(c, "?err=" + encodeURIComponent("Invalid world name."));
-    if (getWorldByMv(mv)) return redirect(c, "?err=" + encodeURIComponent("A world with that name already exists."));
-    if (listAllWorlds().length >= GLOBAL_WORLD_CAP) return redirect(c, "?err=" + encodeURIComponent(`World cap reached (${GLOBAL_WORLD_CAP}).`));
-    if (file.size > 150 * 1024 * 1024) return redirect(c, "?err=" + encodeURIComponent("World too large (max 150MB)."));
+    const MAX_UPLOAD = 400 * 1024 * 1024;
+    // Raw-body upload, not multipart/form-data: Bun's FormData/multipart parser
+    // is unreliable on large bodies — it drops the connection intermittently at
+    // arbitrary points well under any configured size cap (matches known upstream
+    // issues in oven-sh/bun's multipart handling). The client streams the file
+    // directly as the request body instead; name/filename ride as query params.
+    const nameRaw = String(c.req.query("name") ?? "").trim();
+    const origFilename = String(c.req.query("filename") ?? "world.zip");
+    const mv = sanitizeWorldName(nameRaw || origFilename.replace(/\.zip$/i, ""));
+    if (!mv) return bail("?err=" + encodeURIComponent("Invalid world name."));
+    if (getWorldByMv(mv)) return bail("?err=" + encodeURIComponent("A world with that name already exists."));
+    if (listAllWorlds().length >= GLOBAL_WORLD_CAP) return bail("?err=" + encodeURIComponent(`World cap reached (${GLOBAL_WORLD_CAP}).`));
+    const declaredSize = Number(c.req.header("content-length") ?? "0");
+    if (declaredSize > MAX_UPLOAD) return bail("?err=" + encodeURIComponent("World too large (max 400MB)."));
+    if (!body) return redirect(c, "?err=" + encodeURIComponent("No file uploaded."));
+    // The client auto-retries the same name on a dropped connection; without this
+    // gate a retry firing while the first attempt is still importing could race
+    // it into the same destination folder (see uploadsInProgress above).
+    if (uploadsInProgress.has(mv)) return bail("?err=" + encodeURIComponent("An upload for that name is already in progress — give it a minute."));
+    uploadsInProgress.add(mv);
 
     const tmp = `/tmp/up-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
     try {
       await $`mkdir -p ${tmp}/x`.quiet();
-      await Bun.write(`${tmp}/w.zip`, file);                  // streams the blob to disk
+      // Stream straight to disk (constant memory) instead of buffering the
+      // whole body as a Blob/FormData field first.
+      const writer = Bun.file(`${tmp}/w.zip`).writer();
+      const reader = body.getReader();
+      let received = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        received += value.byteLength;
+        if (received > MAX_UPLOAD) {
+          await reader.cancel().catch(() => {});
+          await writer.end();
+          await $`rm -rf ${tmp}`.quiet().nothrow();
+          return redirect(c, "?err=" + encodeURIComponent("World too large (max 400MB)."));
+        }
+        writer.write(value);
+      }
+      await writer.end();
       const un = await $`unzip -qq -o ${tmp}/w.zip -d ${tmp}/x`.quiet().nothrow();
       if (un.exitCode !== 0) { await $`rm -rf ${tmp}`.quiet().nothrow(); return redirect(c, "?err=" + encodeURIComponent("Not a valid .zip archive.")); }
       const found = (await $`find ${tmp}/x -maxdepth 4 -name level.dat -printf ${"%h\\n"}`.quiet().nothrow().text()).trim().split("\n").filter(Boolean);
@@ -776,6 +928,8 @@ export function mountWorlds(app: Hono): void {
     } catch (e: any) {
       await $`rm -rf ${tmp}`.quiet().nothrow();
       return redirect(c, "?err=" + encodeURIComponent("Upload failed: " + (e?.message || e)));
+    } finally {
+      uploadsInProgress.delete(mv);
     }
   });
 }

@@ -186,4 +186,7 @@ app.get("/js/*", gate, serveClient);
 console.log(`mc-auth listening on :${config.port} (base ${config.publicBaseUrl})`);
 console.log("providers:", providersEnabled());
 
-export default { port: config.port, fetch: app.fetch };
+// Bun's default maxRequestBodySize (128MiB) is smaller than the world upload
+// cap below (400MB) — raise it to match, or large world .zip uploads get a
+// bare 413 before the request even reaches the /worlds/upload handler.
+export default { port: config.port, fetch: app.fetch, maxRequestBodySize: 400 * 1024 * 1024 };
