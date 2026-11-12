@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import { signSession } from "../jwt.ts";
-import { setSessionCookie, clientIp, rateLimited } from "../session.ts";
+import { setSessionCookie, clientIp, rateLimited, postLoginPath } from "../session.ts";
 import { resolveEmailLogin } from "../db.ts";
 
 export function mountEmail(app: Hono): void {
@@ -22,6 +22,6 @@ export function mountEmail(app: Hono): void {
       admin: !!res.user.is_admin,
     });
     setSessionCookie(c, token);
-    return c.redirect("/");
+    return c.redirect(postLoginPath(c));
   });
 }

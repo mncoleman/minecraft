@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { stat } from "node:fs/promises";
 import { config, providersEnabled } from "./config.ts";
-import { currentSession, clearSessionCookie } from "./session.ts";
+import { currentSession, clearSessionCookie, postLoginPath } from "./session.ts";
 import { bootstrapAllowlist, getUserById, pendingFriendRequestCount } from "./db.ts";
 import { mountTelegram } from "./providers/telegram.ts";
 import { mountGoogle } from "./providers/google.ts";
@@ -58,7 +58,7 @@ app.get("/internal/username", (c) => {
 
 // ── login page ───────────────────────────────────────────────────────────────
 app.get("/login", async (c) => {
-  if (await currentSession(c)) return c.redirect("/");
+  if (await currentSession(c)) return c.redirect(postLoginPath(c));
   const file = Bun.file(new URL("../public/login.html", import.meta.url).pathname);
   let page = await file.text();
   const injected = `<script>window.MC_AUTH=${JSON.stringify({

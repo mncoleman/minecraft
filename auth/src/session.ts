@@ -20,6 +20,15 @@ export function clearSessionCookie(c: Context): void {
   deleteCookie(c, config.cookieName, { path: "/" });
 }
 
+/** Where to send someone right after they sign in: back to a pending OAuth
+ *  consent page (set by GET /oauth/authorize when they weren't signed in), else
+ *  home. Only same-site /oauth/authorize paths are honoured, never an open redirect. */
+export function postLoginPath(c: Context): string {
+  const next = getCookie(c, "mc_oauth_next");
+  if (next) deleteCookie(c, "mc_oauth_next", { path: "/" });
+  return next && /^\/oauth\/authorize\?[\x21-\x7e]*$/.test(next) && !next.includes("\\") ? next : "/";
+}
+
 export function getSessionToken(c: Context): string | undefined {
   return getCookie(c, config.cookieName);
 }

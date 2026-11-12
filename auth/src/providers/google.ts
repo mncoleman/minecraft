@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { config } from "../config.ts";
 import { signSession } from "../jwt.ts";
-import { setSessionCookie } from "../session.ts";
+import { setSessionCookie, postLoginPath } from "../session.ts";
 import { resolveGoogleUser } from "../db.ts";
 
 const redirectUri = () => `${config.publicBaseUrl}/auth/google/callback`;
@@ -70,6 +70,6 @@ export function mountGoogle(app: Hono): void {
       admin: !!res.user.is_admin,
     });
     setSessionCookie(c, token);
-    return c.redirect("/");
+    return c.redirect(postLoginPath(c));
   });
 }

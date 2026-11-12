@@ -2,7 +2,7 @@ import type { Hono } from "hono";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { config } from "../config.ts";
 import { signSession } from "../jwt.ts";
-import { setSessionCookie } from "../session.ts";
+import { setSessionCookie, postLoginPath } from "../session.ts";
 import { resolveTelegramUser } from "../db.ts";
 
 // Validate the Telegram Login Widget payload per
@@ -46,6 +46,6 @@ export function mountTelegram(app: Hono): void {
       admin: !!res.user.is_admin,
     });
     setSessionCookie(c, token);
-    return c.redirect("/");
+    return c.redirect(postLoginPath(c));
   });
 }

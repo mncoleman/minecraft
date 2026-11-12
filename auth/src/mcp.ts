@@ -9,7 +9,8 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { db, type User } from "./db.ts";
 import { config } from "./config.ts";
-import { currentSession } from "./session.ts";
+import { currentSession, rateLimited, clientIp } from "./session.ts";
+import { setCookie } from "hono/cookie";
 import { signSession } from "./jwt.ts";
 import { getPresence } from "./presence.ts";
 import { listFriends, incomingRequests, outgoingRequests } from "./friends.ts";
@@ -99,13 +100,18 @@ async function plugin(path: string, body: unknown, timeoutMs = 30000): Promise<a
 }
 
 // ── auth ─────────────────────────────────────────────────────────────────────
+// Two kinds of bearer token share the mcp_tokens table: personal tokens minted
+// at /claude (expires_at NULL, never expire) and OAuth access tokens issued to
+// claude.ai connectors (expires_at set, refreshed via oauth_refresh).
+try { db.run("ALTER TABLE mcp_tokens ADD COLUMN expires_at INTEGER"); } catch { /* already added */ }
 type Caller = { user: User; owner: boolean };
 function callerFromBearer(c: Context): Caller | null {
   const h = c.req.header("Authorization") || "";
   const m = h.match(/^Bearer\s+(mcb_[A-Za-z0-9_-]{20,})$/);
   if (!m) return null;
-  const row = db.query("SELECT id, user_id FROM mcp_tokens WHERE token_hash = ?").get(sha256(m[1])) as { id: string; user_id: string } | null;
+  const row = db.query("SELECT id, user_id, expires_at FROM mcp_tokens WHERE token_hash = ?").get(sha256(m[1])) as { id: string; user_id: string; expires_at: number | null } | null;
   if (!row) return null;
+  if (row.expires_at !== null && row.expires_at <= now()) return null;
   const user = db.query("SELECT * FROM users WHERE id = ?").get(row.user_id) as User | null;
   if (!user || !user.is_admin) return null; // phase 1: admins only, re-checked every call
   db.run("UPDATE mcp_tokens SET last_used_at = ? WHERE id = ?", [now(), row.id]);
@@ -669,8 +675,8 @@ export function mountMcp(app: Hono): void {
   app.post("/mcp", async (c) => {
     const caller = callerFromBearer(c);
     if (!caller) {
-      c.header("WWW-Authenticate", 'Bearer realm="minecraft.mncoleman.com", error="invalid_token"');
-      return c.json({ error: "Unauthorized — create a token at /claude." }, 401);
+      c.header("WWW-Authenticate", `Bearer realm="minecraft.mncoleman.com", error="invalid_token", resource_metadata="${config.publicBaseUrl}/.well-known/oauth-protected-resource"`);
+      return c.json({ error: "Unauthorized — create a token at /claude, or connect through claude.ai." }, 401);
     }
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, 400); }
@@ -707,7 +713,7 @@ export function mountMcp(app: Hono): void {
           send(`: connected — following chat from message ${cursor}\n`);
           while (!closed) {
             const u = db.query("SELECT is_admin FROM users WHERE id = ?").get(userId) as { is_admin: number } | null;
-            const live = db.query("SELECT 1 FROM mcp_tokens WHERE token_hash = ? AND user_id = ?").get(tokHash, userId);
+            const live = db.query("SELECT 1 FROM mcp_tokens WHERE token_hash = ? AND user_id = ? AND (expires_at IS NULL OR expires_at > ?)").get(tokHash, userId, now());
             if (!u?.is_admin || !live) { send(": access revoked\n"); break; }
             if (Date.now() - startedAt > 3_600_000) { send(": feed closed after 1 hour — start it again\n"); break; }
             let r: any;
@@ -734,8 +740,14 @@ export function mountMcp(app: Hono): void {
 
   // ── token management (admins) ──────────────────────────────────────────────
   const page = (s: { sub: string; username: string }, fresh?: string, msg?: string) => {
-    const rows = db.query("SELECT id, label, created_at, last_used_at FROM mcp_tokens WHERE user_id = ? ORDER BY created_at DESC").all(s.sub) as
+    const rows = db.query("SELECT id, label, created_at, last_used_at FROM mcp_tokens WHERE user_id = ? AND expires_at IS NULL ORDER BY created_at DESC").all(s.sub) as
       Array<{ id: string; label: string; created_at: number; last_used_at: number | null }>;
+    // claude.ai (OAuth) connections: one live refresh token each.
+    const conns = db.query(`SELECT r.token_hash, r.expires_at, c.name, a.created_at AS issued_at, a.last_used_at
+      FROM oauth_refresh r JOIN oauth_clients c ON c.client_id = r.client_id
+      LEFT JOIN mcp_tokens a ON a.id = r.access_id
+      WHERE r.user_id = ? AND r.used_at IS NULL AND r.expires_at > ? ORDER BY a.created_at DESC`).all(s.sub, now()) as
+      Array<{ token_hash: string; expires_at: number; name: string; issued_at: number | null; last_used_at: number | null }>;
     const when = (t: number | null) => (t ? new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "never");
     const url = `${config.publicBaseUrl || "https://minecraft.mncoleman.com"}/mcp`;
     const body = `
@@ -749,7 +761,8 @@ export function mountMcp(app: Hono): void {
         </ol>
         <p class="hint" style="margin:.6rem 0 .3rem">Claude can read game chat (<code>read_chat</code>) and follow it live. To watch it yourself in a terminal (after setup):</p>
         <div class="codeblock"><code>${esc(LIVE_CMD)}</code></div>
-        <p class="hint" style="margin:.5rem 0 0">Turn the in-game Claude avatar off with <code>/claude avatar off</code>. claude.ai's connectors need OAuth, which this doesn't support yet, so it's Claude Code only for now.</p></div>
+        <p class="hint" style="margin:.5rem 0 0">Turn the in-game Claude avatar off with <code>/claude avatar off</code>.</p>
+        <p class="hint" style="margin:.5rem 0 0"><b>claude.ai:</b> add a custom connector in claude.ai Settings → Connectors with the URL <code>${esc(url)}</code>. You'll sign in here and approve it; no token needed. Connected apps are listed below.</p></div>
       ${fresh ? `<div class="card"><p style="margin:0 0 .5rem"><b>Your new token — copy it now, it won't be shown again:</b></p>
         <div class="codeblock"><code>${esc(fresh)}</code></div>
         <p class="hint" style="margin:0 0 .3rem">Add it to Claude Code (terminal or the desktop app's Code tab):</p>
@@ -765,7 +778,12 @@ export function mountMcp(app: Hono): void {
       ${rows.length ? rows.map((r) => `<div class="world"><div class="row" style="justify-content:space-between;margin:0">
         <span><b>${esc(r.label)}</b> <span class="hint">created ${when(r.created_at)} · last used ${when(r.last_used_at)}</span></span>
         <form method="post" action="/admin/claude/token/${r.id}/revoke" style="margin:0"><button class="btn-danger">Revoke</button></form>
-      </div></div>`).join("") : '<p class="hint">No tokens yet.</p>'}`;
+      </div></div>`).join("") : '<p class="hint">No tokens yet.</p>'}
+      <h2>Connected apps</h2>
+      ${conns.length ? conns.map((r) => `<div class="world"><div class="row" style="justify-content:space-between;margin:0">
+        <span><b>${esc(r.name)}</b> <span class="hint">connected via claude.ai · last used ${when(r.last_used_at)} · until ${when(r.expires_at)} unless used</span></span>
+        <form method="post" action="/admin/claude/oauth/${esc(r.token_hash)}/revoke" style="margin:0"><button class="btn-danger">Disconnect</button></form>
+      </div></div>`).join("") : '<p class="hint">No apps connected.</p>'}`;
     return shell({ title: "Claude", active: "claude", username: s.username, admin: true, body, msg });
   };
   const adminSession = async (c: Context) => {
@@ -786,7 +804,7 @@ export function mountMcp(app: Hono): void {
     const s = await adminSession(c); if (!s) return c.redirect("/worlds?err=" + encodeURIComponent("Admins only."));
     const form = await c.req.parseBody();
     const label = String(form.label ?? "").trim().slice(0, 40) || "token";
-    const n = (db.query("SELECT COUNT(*) AS n FROM mcp_tokens WHERE user_id = ?").get(s.sub) as { n: number }).n;
+    const n = (db.query("SELECT COUNT(*) AS n FROM mcp_tokens WHERE user_id = ? AND expires_at IS NULL").get(s.sub) as { n: number }).n;
     if (n >= 10) return c.redirect("/claude?msg=" + encodeURIComponent("You have 10 tokens; revoke one first."));
     const raw = "mcb_" + randomBytes(24).toString("base64url");
     db.run("INSERT INTO mcp_tokens (id, user_id, token_hash, label, created_at) VALUES (?,?,?,?,?)", [randomUUID(), s.sub, sha256(raw), label, now()]);
@@ -795,7 +813,269 @@ export function mountMcp(app: Hono): void {
   });
   app.post("/admin/claude/token/:id/revoke", async (c) => {
     const s = await adminSession(c); if (!s) return c.redirect("/worlds?err=" + encodeURIComponent("Admins only."));
+    // An OAuth access token also takes its refresh token with it, so the
+    // connector can't silently mint a new one; it has to be re-authorized.
+    db.run("DELETE FROM oauth_refresh WHERE access_id = ? AND user_id = ?", [c.req.param("id"), s.sub]);
     db.run("DELETE FROM mcp_tokens WHERE id = ? AND user_id = ?", [c.req.param("id"), s.sub]);
     return c.redirect("/claude?msg=" + encodeURIComponent("Token revoked."));
+  });
+
+  app.post("/admin/claude/oauth/:hash/revoke", async (c) => {
+    const s = await adminSession(c); if (!s) return c.redirect("/worlds?err=" + encodeURIComponent("Admins only."));
+    const row = db.query("SELECT access_id FROM oauth_refresh WHERE token_hash = ? AND user_id = ?").get(c.req.param("hash"), s.sub) as { access_id: string | null } | null;
+    if (row?.access_id) db.run("DELETE FROM mcp_tokens WHERE id = ? AND user_id = ?", [row.access_id, s.sub]);
+    db.run("DELETE FROM oauth_refresh WHERE token_hash = ? AND user_id = ?", [c.req.param("hash"), s.sub]);
+    return c.redirect("/claude?msg=" + encodeURIComponent("App disconnected."));
+  });
+
+  mountOAuth(app);
+}
+
+// ── OAuth 2.1 for claude.ai connectors ───────────────────────────────────────
+// claude.ai's custom connectors only speak OAuth, so /mcp also accepts access
+// tokens issued here. Flow (MCP authorization spec): discovery via the two
+// /.well-known documents, dynamic client registration, authorization code +
+// PKCE (S256 only) through the panel's normal login and a consent page, then
+// short-lived access tokens with rotating refresh tokens. Admins only, the same
+// rule as personal tokens; callerFromBearer re-checks admin on every call.
+db.run(`CREATE TABLE IF NOT EXISTS oauth_clients (
+  client_id     TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  redirect_uris TEXT NOT NULL,
+  created_at    INTEGER NOT NULL
+)`);
+db.run(`CREATE TABLE IF NOT EXISTS oauth_codes (
+  code_hash    TEXT PRIMARY KEY,
+  client_id    TEXT NOT NULL,
+  user_id      TEXT NOT NULL,
+  redirect_uri TEXT NOT NULL,
+  challenge    TEXT NOT NULL,
+  expires_at   INTEGER NOT NULL
+)`);
+db.run(`CREATE TABLE IF NOT EXISTS oauth_refresh (
+  token_hash TEXT PRIMARY KEY,
+  client_id  TEXT NOT NULL,
+  user_id    TEXT NOT NULL,
+  access_id  TEXT,
+  expires_at INTEGER NOT NULL
+)`);
+
+const ACCESS_TTL = 3600;            // 1 hour
+const REFRESH_TTL = 30 * 24 * 3600; // 30 days
+const CODE_TTL = 300;               // 5 minutes
+const REFRESH_GRACE = 60;           // seconds a rotated refresh token still works
+try { db.run("ALTER TABLE oauth_refresh ADD COLUMN used_at INTEGER"); } catch { /* already added */ }
+export const OAUTH_NEXT_COOKIE = "mc_oauth_next";
+
+type OAuthClient = { client_id: string; name: string; redirect_uris: string };
+function getClient(id: string): OAuthClient | null {
+  return db.query("SELECT client_id, name, redirect_uris FROM oauth_clients WHERE client_id = ?").get(String(id || "")) as OAuthClient | null;
+}
+// Registration is open (claude.ai registers itself), so the redirect URI is the
+// only thing tying a client to a trusted app: allow claude.ai's own callback and
+// loopback (Claude Code / local tools). Anything else could phish an admin into
+// handing a console-capable token to another site.
+const ALLOWED_CALLBACKS = new Set([
+  "https://claude.ai/api/mcp/auth_callback",
+  "https://claude.com/api/mcp/auth_callback",
+]);
+function okRedirectUri(u: string): boolean {
+  if (typeof u !== "string" || u.length > 512) return false;
+  try {
+    const url = new URL(u);
+    if (url.hash || url.username || url.password) return false;
+    if (ALLOWED_CALLBACKS.has(url.origin + url.pathname) && !url.search) return true;
+    return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+  } catch { return false; }
+}
+function withParams(base: string, params: Record<string, string | undefined>): string {
+  const url = new URL(base);
+  for (const [k, v] of Object.entries(params)) if (v !== undefined) url.searchParams.set(k, v);
+  return url.toString();
+}
+function issueTokens(client: OAuthClient, userId: string) {
+  const t = now();
+  db.run("DELETE FROM mcp_tokens WHERE expires_at IS NOT NULL AND expires_at < ?", [t - 86400]);
+  db.run("DELETE FROM oauth_refresh WHERE expires_at < ? OR (used_at IS NOT NULL AND used_at < ?)", [t, t - REFRESH_GRACE]);
+  db.run("DELETE FROM oauth_codes WHERE expires_at < ?", [t]);
+  const access = "mcb_" + randomBytes(24).toString("base64url");
+  const refresh = "mcr_" + randomBytes(32).toString("base64url");
+  const accessId = randomUUID();
+  db.run("INSERT INTO mcp_tokens (id, user_id, token_hash, label, created_at, expires_at) VALUES (?,?,?,?,?,?)",
+    [accessId, userId, sha256(access), ("claude.ai: " + client.name).slice(0, 40), t, t + ACCESS_TTL]);
+  db.run("INSERT INTO oauth_refresh (token_hash, client_id, user_id, access_id, expires_at) VALUES (?,?,?,?,?)",
+    [sha256(refresh), client.client_id, userId, accessId, t + REFRESH_TTL]);
+  return { access_token: access, token_type: "Bearer", expires_in: ACCESS_TTL, refresh_token: refresh, scope: "mcp" };
+}
+
+function mountOAuth(app: Hono): void {
+  const base = () => config.publicBaseUrl;
+  const prm = (c: Context) => c.json({
+    resource: `${base()}/mcp`,
+    authorization_servers: [base()],
+    bearer_methods_supported: ["header"],
+    resource_name: "Minecraft (minecraft.mncoleman.com)",
+  });
+  app.get("/.well-known/oauth-protected-resource", prm);
+  app.get("/.well-known/oauth-protected-resource/mcp", prm);
+  const asMeta = (c: Context) => c.json({
+    issuer: base(),
+    authorization_endpoint: `${base()}/oauth/authorize`,
+    token_endpoint: `${base()}/oauth/token`,
+    registration_endpoint: `${base()}/oauth/register`,
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
+    code_challenge_methods_supported: ["S256"],
+    token_endpoint_auth_methods_supported: ["none"],
+    scopes_supported: ["mcp"],
+  });
+  app.get("/.well-known/oauth-authorization-server", asMeta);
+  app.get("/.well-known/oauth-authorization-server/mcp", asMeta);
+
+  // Dynamic client registration (public clients only; no secret is issued).
+  app.post("/oauth/register", async (c) => {
+    if (rateLimited("oauthreg:" + clientIp(c), 20, 3600)) return c.json({ error: "temporarily_unavailable" }, 429);
+    if (Number(c.req.header("Content-Length") || 0) > 8192) return c.json({ error: "invalid_client_metadata", error_description: "body too large" }, 413);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid_client_metadata", error_description: "JSON body required" }, 400); }
+    if (!body || typeof body !== "object") return c.json({ error: "invalid_client_metadata" }, 400);
+    const uris = Array.isArray(body?.redirect_uris) ? body.redirect_uris.map(String) : [];
+    if (!uris.length || uris.length > 5 || !uris.every(okRedirectUri)) {
+      return c.json({ error: "invalid_redirect_uri", error_description: "1-5 https (or http://localhost) redirect URIs required" }, 400);
+    }
+    const name = String(body?.client_name || "MCP client").replace(/[\x00-\x1f]/g, "").slice(0, 60) || "MCP client";
+    const id = "mcc_" + randomBytes(16).toString("base64url");
+    // Cap the table without ever evicting a client that is in use: only clients
+    // older than a day with no refresh token or pending code can go.
+    const total = (db.query("SELECT COUNT(*) AS n FROM oauth_clients").get() as { n: number }).n;
+    if (total >= 500) {
+      db.run(`DELETE FROM oauth_clients WHERE client_id IN (
+        SELECT client_id FROM oauth_clients
+        WHERE created_at < ? AND client_id NOT IN (SELECT client_id FROM oauth_refresh) AND client_id NOT IN (SELECT client_id FROM oauth_codes)
+        ORDER BY created_at ASC LIMIT 100)`, [now() - 86400]);
+      const left = (db.query("SELECT COUNT(*) AS n FROM oauth_clients").get() as { n: number }).n;
+      if (left >= 500) return c.json({ error: "temporarily_unavailable" }, 503);
+    }
+    db.run("INSERT INTO oauth_clients (client_id, name, redirect_uris, created_at) VALUES (?,?,?,?)", [id, name, JSON.stringify(uris), now()]);
+    return c.json({
+      client_id: id, client_id_issued_at: now(), client_name: name, redirect_uris: uris,
+      grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none",
+    }, 201);
+  });
+
+  // Validate an authorization request. Errors about the client or redirect URI
+  // are shown on our page (never redirected to an unverified URI).
+  type AuthReq = { client: OAuthClient; redirect_uri: string; state?: string; challenge: string };
+  const parseAuthReq = (q: Record<string, string | undefined>): AuthReq | { page: string } | { redirect: string } => {
+    const client = getClient(q.client_id || "");
+    if (!client) return { page: "This app isn't registered with the Minecraft panel. Remove the connector and add it again." };
+    const uris: string[] = JSON.parse(client.redirect_uris);
+    const redirect_uri = q.redirect_uri || (uris.length === 1 ? uris[0] : "");
+    if (!uris.includes(redirect_uri)) return { page: "The app sent a redirect address it didn't register." };
+    const state = q.state;
+    if (q.response_type !== "code") return { redirect: withParams(redirect_uri, { error: "unsupported_response_type", state }) };
+    if (!q.code_challenge || q.code_challenge_method !== "S256") return { redirect: withParams(redirect_uri, { error: "invalid_request", error_description: "PKCE S256 required", state }) };
+    return { client, redirect_uri, state, challenge: q.code_challenge };
+  };
+  const errPage = (c: Context, msg: string) => c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Can't connect</title><body style="font:16px system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem"><h1>Can't connect</h1><p>${esc(msg)}</p></body>`, 400);
+  const sameOrigin = (c: Context) => {
+    const site = c.req.header("Sec-Fetch-Site");
+    const origin = c.req.header("Origin");
+    return !((site && site !== "same-origin" && site !== "none") || (origin && origin !== base()));
+  };
+
+  app.get("/oauth/authorize", async (c) => {
+    const r = parseAuthReq(c.req.query());
+    if ("page" in r) return errPage(c, r.page);
+    if ("redirect" in r) return c.redirect(r.redirect);
+    const s = await currentSession(c);
+    if (!s) {
+      // Come back here after signing in (the login handlers honour this cookie).
+      setCookie(c, OAUTH_NEXT_COOKIE, c.req.url.replace(/^https?:\/\/[^/]+/, ""), { path: "/", httpOnly: true, secure: !config.devInsecureCookie, sameSite: "Lax", maxAge: 600 });
+      return c.redirect("/login");
+    }
+    if (!s.admin) return c.redirect(withParams(r.redirect_uri, { error: "access_denied", error_description: "Claude access is admin-only for now", state: r.state }));
+    const hidden = (k: string, v?: string) => (v === undefined ? "" : `<input type="hidden" name="${k}" value="${esc(v)}"/>`);
+    const q = c.req.query();
+    const body = `
+      <h1>Connect ${esc(r.client.name)}</h1>
+      <div class="card">
+        <p style="margin:0 0 .6rem">An app calling itself <b>${esc(r.client.name)}</b> at <b>${esc(new URL(r.redirect_uri).host)}</b> wants to use Claude's Minecraft tools as <b>${esc(s.username)}</b>: see where you are, read chat, run allowed commands, and build where you have build rights.</p>
+        <p class="hint" style="margin:0 0 .8rem">Only allow this if you just added the connector yourself. You can revoke it any time on the Claude page.</p>
+        <form method="post" action="/oauth/authorize" class="row" style="margin:0">
+          ${hidden("client_id", q.client_id)}${hidden("redirect_uri", r.redirect_uri)}${hidden("state", q.state)}
+          ${hidden("response_type", q.response_type)}${hidden("code_challenge", q.code_challenge)}${hidden("code_challenge_method", q.code_challenge_method)}
+          <button class="btn-primary" name="decision" value="allow">Allow</button>
+          <button name="decision" value="deny">Cancel</button>
+        </form>
+      </div>`;
+    c.header("Cache-Control", "no-store");
+    c.header("X-Frame-Options", "DENY");
+    c.header("Content-Security-Policy", "frame-ancestors 'none'");
+    return c.html(shell({ title: "Connect " + r.client.name, active: "claude", username: s.username, admin: true, body }));
+  });
+
+  app.post("/oauth/authorize", async (c) => {
+    if (!sameOrigin(c)) return errPage(c, "That request didn't come from this site.");
+    const f = await c.req.parseBody();
+    const q: Record<string, string> = {};
+    for (const [k, v] of Object.entries(f)) if (typeof v === "string") q[k] = v;
+    const r = parseAuthReq(q);
+    if ("page" in r) return errPage(c, r.page);
+    if ("redirect" in r) return c.redirect(r.redirect);
+    const s = await currentSession(c);
+    if (!s?.admin) return c.redirect(withParams(r.redirect_uri, { error: "access_denied", state: r.state }));
+    if (q.decision !== "allow") return c.redirect(withParams(r.redirect_uri, { error: "access_denied", state: r.state }));
+    const code = randomBytes(32).toString("base64url");
+    db.run("INSERT INTO oauth_codes (code_hash, client_id, user_id, redirect_uri, challenge, expires_at) VALUES (?,?,?,?,?,?)",
+      [sha256(code), r.client.client_id, s.sub, r.redirect_uri, r.challenge, now() + CODE_TTL]);
+    return c.redirect(withParams(r.redirect_uri, { code, state: r.state }));
+  });
+
+  app.post("/oauth/token", async (c) => {
+    c.header("Cache-Control", "no-store");
+    if (rateLimited("oauthtok:" + clientIp(c), 60, 600)) return c.json({ error: "temporarily_unavailable" }, 429);
+    const f: Record<string, string> = {};
+    const ct = c.req.header("Content-Type") || "";
+    try {
+      const raw: unknown = ct.includes("application/json") ? await c.req.json() : await c.req.parseBody();
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return c.json({ error: "invalid_request" }, 400);
+      for (const [k, v] of Object.entries(raw as Record<string, unknown>)) if (typeof v === "string" && v.length <= 2048) f[k] = v;
+    } catch { return c.json({ error: "invalid_request" }, 400); }
+    const bad = (error: string, desc?: string) => c.json({ error, ...(desc ? { error_description: desc } : {}) }, 400);
+    const client = getClient(f.client_id || "");
+    if (!client) return c.json({ error: "invalid_client" }, 401);
+    const isAdmin = (uid: string) => !!(db.query("SELECT is_admin FROM users WHERE id = ?").get(uid) as { is_admin: number } | null)?.is_admin;
+
+    if (f.grant_type === "authorization_code") {
+      const row = db.query("SELECT * FROM oauth_codes WHERE code_hash = ?").get(sha256(f.code || "")) as
+        { client_id: string; user_id: string; redirect_uri: string; challenge: string; expires_at: number } | null;
+      if (row) db.run("DELETE FROM oauth_codes WHERE code_hash = ?", [sha256(f.code || "")]); // single use
+      if (!row || row.expires_at < now() || row.client_id !== client.client_id) return bad("invalid_grant");
+      if (f.redirect_uri && f.redirect_uri !== row.redirect_uri) return bad("invalid_grant", "redirect_uri mismatch");
+      const verifier = f.code_verifier || "";
+      if (!/^[A-Za-z0-9._~-]{43,128}$/.test(verifier)) return bad("invalid_grant", "code_verifier required");
+      if (createHash("sha256").update(verifier).digest("base64url") !== row.challenge) return bad("invalid_grant", "PKCE check failed");
+      if (!isAdmin(row.user_id)) return bad("invalid_grant", "admin-only");
+      return c.json(issueTokens(client, row.user_id));
+    }
+    if (f.grant_type === "refresh_token") {
+      const h = sha256(f.refresh_token || "");
+      const row = db.query("SELECT * FROM oauth_refresh WHERE token_hash = ?").get(h) as
+        { client_id: string; user_id: string; access_id: string | null; expires_at: number; used_at: number | null } | null;
+      if (!row || row.expires_at < now() || row.client_id !== client.client_id) return bad("invalid_grant");
+      // Rotate. The old access token dies now; the old refresh token stays usable
+      // for REFRESH_GRACE seconds so a dropped response or a concurrent refresh
+      // doesn't force a re-authorize. After that it is refused.
+      if (row.used_at !== null && now() - row.used_at > REFRESH_GRACE) {
+        db.run("DELETE FROM oauth_refresh WHERE token_hash = ?", [h]);
+        return bad("invalid_grant");
+      }
+      if (row.used_at === null) db.run("UPDATE oauth_refresh SET used_at = ? WHERE token_hash = ?", [now(), h]);
+      if (row.access_id) db.run("DELETE FROM mcp_tokens WHERE id = ?", [row.access_id]);
+      if (!isAdmin(row.user_id)) { db.run("DELETE FROM oauth_refresh WHERE token_hash = ?", [h]); return bad("invalid_grant", "admin-only"); }
+      return c.json(issueTokens(client, row.user_id));
+    }
+    return bad("unsupported_grant_type");
   });
 }
