@@ -22,7 +22,8 @@ import java.util.zip.GZIPOutputStream;
  * id+data per position) to disk. Positions holding a tile entity (chests, signs,
  * spawners, banners...) are never overwritten — their contents can't be restored.
  * Undo only reverts positions still holding what this job placed, so later edits
- * by players are never clobbered.
+ * by players are never clobbered. Containers are NOT protected: replacing one
+ * (or undoing over one) discards its contents.
  */
 @SuppressWarnings("deprecation")
 public final class JobManager {
@@ -161,10 +162,9 @@ public final class JobManager {
                 if ("undo".equals(j.kind)) {
                     // Only revert what we placed; anything changed since stays.
                     if (!sameAsPlaced(curId, curData, j.prevIds[i], j.prevDatas[i])) { j.skippedOccupied++; continue; }
-                    // A container the build placed may since hold a player's items — keep it.
-                    if (hasTileEntity(w, x, y, z)) { j.skippedProtected++; continue; }
                 } else {
-                    if (hasTileEntity(w, x, y, z)) { j.skippedProtected++; continue; }
+                    // No container protection (owner's call, 2026-11-12): chests, dispensers,
+                    // signs etc. are replaced like any block; their contents are lost.
                     if (j.onlyAir && curId != 0) { j.skippedOccupied++; continue; }
                     j.prevIds[i] = curId; j.prevDatas[i] = curData;
                 }
@@ -225,7 +225,10 @@ public final class JobManager {
         Material.ACACIA_FENCE_GATE, Material.DARK_OAK_FENCE_GATE, Material.PISTON_BASE, Material.PISTON_STICKY_BASE,
         Material.DISPENSER, Material.DROPPER, Material.HOPPER, Material.FURNACE, Material.BURNING_FURNACE, Material.TRIPWIRE,
         Material.TRIPWIRE_HOOK, Material.DAYLIGHT_DETECTOR, Material.DAYLIGHT_DETECTOR_INVERTED, Material.NOTE_BLOCK,
-        Material.LEAVES, Material.LEAVES_2, Material.GRASS, Material.SOIL, Material.CROPS, Material.VINE);
+        Material.LEAVES, Material.LEAVES_2, Material.GRASS, Material.SOIL, Material.CROPS, Material.VINE,
+        Material.CHEST, Material.TRAPPED_CHEST, Material.ENDER_CHEST, Material.BREWING_STAND, Material.JUKEBOX,
+        Material.BED_BLOCK, Material.SIGN_POST, Material.WALL_SIGN, Material.SKULL, Material.STANDING_BANNER, Material.WALL_BANNER,
+        Material.FLOWER_POT, Material.CAULDRON, Material.ANVIL);
 
     /** Does the current block still look like what the build placed? */
     private static boolean sameAsPlaced(int curId, byte curData, int placedId, byte placedData) {

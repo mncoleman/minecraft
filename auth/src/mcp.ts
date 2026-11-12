@@ -196,7 +196,7 @@ const TOOLS = [
       "  {type:'blocks', origin:[x,y,z], list:[[dx,dy,dz,'block'], ...]}  (a relative blueprint)",
       "Blocks are 1.12 names with optional :data — vanilla ids ('oak_stairs:1','planks:2','golden_rail','log2:1') or Bukkit names ('wood_stairs','powered_rail'). Players use 1.8 clients, so blocks newer than 1.8 (concrete, terracotta colours, shulker boxes, observers...) render as substitutes — prefer 1.8 blocks.",
       "Data values: stairs 0=ascend toward +x(east),1=-x(west),2=+z(south),3=-z(north) (+4 = upside-down). rail/golden_rail 0=north-south, 1=east-west; ramps 2=up to east,3=up to west,4=up to north,5=up to south. torch 5=standing. Doors: lower half 0-3 facing, upper half 8.",
-      "Safety: blocks holding contents (chests, signs, spawners, banners…) are never overwritten. only_air:true leaves every existing non-air block alone (great for decorating without damaging terrain).",
+      "Containers (chests, dispensers, hoppers, signs…) are replaced like any other block and their contents are LOST — read them with `container` first if they might matter. only_air:true leaves every existing non-air block alone (great for decorating without damaging terrain).",
       "Returns a job id + counts; keep the id — `undo` reverts the whole build.",
     ].join("\n"),
     inputSchema: {
@@ -252,7 +252,7 @@ const TOOLS = [
   },
   {
     name: "undo",
-    description: "Revert a build job exactly. Blocks someone changed since are left as they are.",
+    description: "Revert a build job exactly. Blocks someone changed since are left as they are. Containers the build placed are removed even if they now hold items (contents lost).",
     inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
   },
   {
