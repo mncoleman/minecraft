@@ -71,6 +71,7 @@ public final class ApiServer {
                 case "/say": out = say(body); break;
                 case "/chat": out = chat(body); break;
                 case "/container": out = container(body); break;
+                case "/avatar": out = avatar(body); break;
                 case "/rail_plan": out = railPlan(body); break;
                 case "/rail_build": out = railBuild(body); break;
                 case "/rail_verify": out = railVerify(body); break;
@@ -159,6 +160,57 @@ public final class ApiServer {
         if (msg.length() > 256) msg = msg.substring(0, 256);
         String m = msg;
         return sync(() -> { plugin.avatar().say(m); JsonObject o = new JsonObject(); o.addProperty("ok", true); return o; });
+    }
+
+    private JsonObject avatar(JsonObject b) throws Exception {
+        String action = b.has("action") ? b.get("action").getAsString() : "status";
+        int seconds = b.has("seconds") ? Math.max(5, Math.min(600, b.get("seconds").getAsInt())) : 120;
+        String player = b.has("player") && !b.get("player").isJsonNull() ? b.get("player").getAsString() : null;
+        int[] pos = b.has("pos") && b.get("pos").isJsonArray() ? vec(b, "pos") : null;
+        String world = b.has("world") && !b.get("world").isJsonNull() ? b.get("world").getAsString() : null;
+        return sync(() -> {
+            Avatar a = plugin.avatar();
+            JsonObject o = new JsonObject();
+            String msg;
+            Player p = player == null ? null : Bukkit.getPlayerExact(player);
+            switch (action) {
+                case "appear": {
+                    if (pos != null) {
+                        World w = world == null ? null : Bukkit.getWorld(world);
+                        if (w == null) throw new IllegalArgumentException("world not loaded: " + world);
+                        float face = p != null ? (float) Math.toDegrees(Math.atan2(-(p.getLocation().getX() - pos[0] - 0.5), p.getLocation().getZ() - pos[2] - 0.5)) : 0f;
+                        msg = a.appear(w, pos[0] + 0.5, pos[1], pos[2] + 0.5, face, seconds);
+                    } else {
+                        if (p == null) throw new IllegalArgumentException("player not online (give pos instead)");
+                        Location l = p.getLocation(); double yawR = Math.toRadians(l.getYaw());
+                        msg = a.appear(l.getWorld(), l.getX() - Math.sin(yawR) * 2.5, l.getY(), l.getZ() + Math.cos(yawR) * 2.5, (l.getYaw() + 180f) % 360f, seconds);
+                    }
+                    break;
+                }
+                case "walk_to": {
+                    if (pos == null) throw new IllegalArgumentException("walk_to needs pos");
+                    World w = Bukkit.getWorld(world == null ? "" : world);
+                    if (w == null) throw new IllegalArgumentException("world not loaded: " + world);
+                    msg = a.walkTo(w, pos[0] + 0.5, pos[1], pos[2] + 0.5, seconds); break;
+                }
+                case "follow": {
+                    if (p == null) throw new IllegalArgumentException("player not online");
+                    msg = a.follow(p, seconds); break;
+                }
+                case "look_at": {
+                    if (pos != null) msg = a.look(pos[0] + 0.5, pos[1] + 0.5, pos[2] + 0.5);
+                    else if (p != null) msg = a.look(p.getLocation().getX(), p.getLocation().getY() + 1.6, p.getLocation().getZ());
+                    else throw new IllegalArgumentException("look_at needs pos or player");
+                    break;
+                }
+                case "hide": msg = a.hide(); break;
+                case "status": msg = null; break;
+                default: throw new IllegalArgumentException("action: appear | walk_to | follow | look_at | hide | status");
+            }
+            if (msg != null) o.addProperty("result", msg);
+            o.add("avatar", a.status());
+            return o;
+        });
     }
 
     /** Read or fill a container block (chest, dispenser, dropper, hopper, furnace, brewing stand...). */

@@ -34,7 +34,19 @@ public final class Avatar {
     private int tickCount = 0;
     private boolean broken = false;
 
+    // Directed presence (the `avatar` tool): stays until presentUntil, can walk to
+    // a goal or follow a player. Driven by one tick task that runs only while shown.
+    private long presentUntil = 0;
+    private double[] goal = null;           // x,y,z to walk to
+    private UUID following = null;
+    private double[] lookAt = null;
+    private int brainTask = -1;
+    private boolean building = false;
+    private static final double WALK_PER_TICK = 0.24;   // ~4.8 blocks/s, a brisk walk
+
     public Avatar(ClaudeBuildPlugin plugin) { this.plugin = plugin; }
+
+    public boolean present() { return npc != null && System.currentTimeMillis() < presentUntil; }
 
     private boolean enabled() { return !broken && plugin.getConfig().getBoolean("avatar-enabled", true); }
     private String displayName() {
@@ -44,6 +56,7 @@ public final class Avatar {
 
     public void jobStarted(JobManager.Job j) {
         if (despawnTask != -1) { Bukkit.getScheduler().cancelTask(despawnTask); despawnTask = -1; }
+        building = true;
     }
 
     public void progress(JobManager.Job j, World w, int x, int y, int z) {
@@ -68,7 +81,8 @@ public final class Avatar {
     }
 
     public void jobFinished(JobManager.Job j) {
-        if (npc == null) return;
+        building = false;
+        if (npc == null || present()) return;   // directed presence keeps it around
         despawnTask = Bukkit.getScheduler().runTaskLater(plugin, () -> { despawnTask = -1; despawnAll(); }, 100L).getTaskId();
     }
 
@@ -80,7 +94,123 @@ public final class Avatar {
         plugin.chat().add("claude", displayName(), null, message);
     }
 
-    public void shutdown() { despawnAll(); }
+    public void shutdown() { despawnAll(); stopBrain(); }
+
+    // ── directed presence ─────────────────────────────────────────────────────
+    private void ensureShown(World w, double x, double y, double z, float yaw) {
+        if (despawnTask != -1) { Bukkit.getScheduler().cancelTask(despawnTask); despawnTask = -1; }
+        if (npc == null || !w.getName().equals(npcWorld)) { despawnAll(); spawn(w, x, y, z, yaw, 0f); }
+        startBrain();
+    }
+
+    public String appear(World w, double x, double y, double z, float yaw, int seconds) {
+        if (!enabled()) return "Avatar is turned off (/claude avatar on).";
+        try {
+            presentUntil = System.currentTimeMillis() + seconds * 1000L;
+            goal = null; following = null; lookAt = null;
+            ensureShown(w, x, y, z, yaw);
+            move(x, y, z, yaw, 0f);
+            return "Claude is standing at " + Math.round(x) + " " + Math.round(y) + " " + Math.round(z) + " in " + w.getName() + " for " + seconds + "s (" + viewers.size() + " player(s) can see it).";
+        } catch (Throwable t) { fail(t); return "Avatar failed: " + t; }
+    }
+
+    public String walkTo(World w, double x, double y, double z, int seconds) {
+        if (npc == null || !w.getName().equals(npcWorld)) return "Claude isn't shown in " + w.getName() + " — use appear first.";
+        presentUntil = Math.max(presentUntil, System.currentTimeMillis() + seconds * 1000L);
+        following = null; lookAt = null; goal = new double[]{x, y, z};
+        double d = Math.sqrt(Math.pow(x - npc.locX, 2) + Math.pow(y - npc.locY, 2) + Math.pow(z - npc.locZ, 2));
+        return "Walking to " + Math.round(x) + " " + Math.round(y) + " " + Math.round(z) + " (~" + Math.round(d / (WALK_PER_TICK * 20)) + "s).";
+    }
+
+    public String follow(Player p, int seconds) {
+        if (!enabled()) return "Avatar is turned off (/claude avatar on).";
+        org.bukkit.Location l = p.getLocation();
+        presentUntil = System.currentTimeMillis() + seconds * 1000L;
+        goal = null; lookAt = null; following = p.getUniqueId();
+        if (npc == null || !l.getWorld().getName().equals(npcWorld)) {
+            double yawR = Math.toRadians(l.getYaw());
+            ensureShown(l.getWorld(), l.getX() + Math.sin(yawR) * 2, l.getY(), l.getZ() - Math.cos(yawR) * 2, l.getYaw());
+        }
+        return "Following " + p.getName() + " for " + seconds + "s.";
+    }
+
+    public String look(double x, double y, double z) {
+        if (npc == null) return "Claude isn't shown — use appear first.";
+        lookAt = new double[]{x, y, z};
+        return "Looking at " + Math.round(x) + " " + Math.round(y) + " " + Math.round(z) + ".";
+    }
+
+    public String hide() {
+        presentUntil = 0; goal = null; following = null; lookAt = null;
+        despawnAll(); stopBrain();
+        return "Claude left.";
+    }
+
+    public com.google.gson.JsonObject status() {
+        com.google.gson.JsonObject o = new com.google.gson.JsonObject();
+        o.addProperty("shown", npc != null);
+        o.addProperty("enabled", enabled());
+        if (npc != null) {
+            o.addProperty("world", npcWorld);
+            o.addProperty("x", Math.round(npc.locX)); o.addProperty("y", Math.round(npc.locY)); o.addProperty("z", Math.round(npc.locZ));
+            o.addProperty("seen_by", viewers.size());
+            o.addProperty("seconds_left", Math.max(0, (presentUntil - System.currentTimeMillis()) / 1000));
+            o.addProperty("doing", building ? "building" : following != null ? "following" : goal != null ? "walking" : "standing");
+        }
+        return o;
+    }
+
+    private void startBrain() {
+        if (brainTask != -1) return;
+        brainTask = Bukkit.getScheduler().runTaskTimer(plugin, this::brain, 1L, 1L).getTaskId();
+    }
+    private void stopBrain() { if (brainTask != -1) { Bukkit.getScheduler().cancelTask(brainTask); brainTask = -1; } }
+
+    private void brain() {
+        try {
+            if (npc == null) { stopBrain(); return; }
+            if (!present() && !building) { if (despawnTask == -1) { despawnAll(); stopBrain(); } return; }
+            if (building) return;                       // builds steer it via progress()
+            World w = Bukkit.getWorld(npcWorld);
+            if (w == null) { despawnAll(); stopBrain(); return; }
+            double[] g = goal;
+            if (following != null) {
+                Player p = Bukkit.getPlayer(following);
+                if (p == null || !p.getWorld().getName().equals(npcWorld)) { following = null; }
+                else {
+                    org.bukkit.Location l = p.getLocation();
+                    double dist = Math.sqrt(Math.pow(l.getX() - npc.locX, 2) + Math.pow(l.getZ() - npc.locZ, 2));
+                    if (dist > 3.5) {
+                        double k = (dist - 2.5) / dist;   // stop ~2.5 blocks away
+                        g = new double[]{npc.locX + (l.getX() - npc.locX) * k, l.getY(), npc.locZ + (l.getZ() - npc.locZ) * k};
+                    } else g = null;
+                    if (dist > 48) { move(l.getX() + 2, l.getY(), l.getZ() + 2, npc.yaw, 0f); g = null; } // fell far behind: catch up
+                    lookAt = new double[]{l.getX(), l.getY() + 1.6, l.getZ()};
+                }
+            }
+            double x = npc.locX, y = npc.locY, z = npc.locZ;
+            float yaw = npc.yaw, pitch = npc.pitch;
+            if (g != null) {
+                double dx = g[0] - x, dy = g[1] - y, dz = g[2] - z, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                if (d <= WALK_PER_TICK) { x = g[0]; y = g[1]; z = g[2]; if (g == goal) goal = null; }
+                else { x += dx / d * WALK_PER_TICK; y += dy / d * WALK_PER_TICK; z += dz / d * WALK_PER_TICK; }
+                yaw = (float) Math.toDegrees(Math.atan2(-dx, dz)); pitch = 0f;
+            }
+            if (lookAt != null && (g == null || following != null)) {
+                double dx = lookAt[0] - x, dy = lookAt[1] - (y + 1.62), dz = lookAt[2] - z;
+                yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+                pitch = (float) -Math.toDegrees(Math.atan2(dy, Math.sqrt(dx * dx + dz * dz)));
+            }
+            if (x != npc.locX || y != npc.locY || z != npc.locZ || yaw != npc.yaw || pitch != npc.pitch) move(x, y, z, yaw, pitch);
+            if ((tickCount++ % 20) == 0) refreshViewers(w);
+        } catch (Throwable t) { fail(t); }
+    }
+
+    private void move(double x, double y, double z, float yaw, float pitch) {
+        npc.setLocation(x, y, z, yaw, pitch);
+        sendAll(new PacketPlayOutEntityTeleport(npc));
+        sendAll(new PacketPlayOutEntityHeadRotation(npc, (byte) (yaw * 256f / 360f)));
+    }
 
     /** Debug: show the avatar 3 blocks in front of a player for 15 s; returns a status line. */
     public String test(Player p) {
