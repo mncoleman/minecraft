@@ -176,10 +176,30 @@ const serveClient = async (c: Context): Promise<Response> => {
   }
   const cacheCtl = "public, max-age=0, must-revalidate";
   if (c.req.header("if-none-match") === etag) {
-    return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": cacheCtl } });
+    return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": cacheCtl, Vary: "Accept-Encoding" } });
+  }
+  // Precompressed sidecars (<file>.br / <file>.gz, made offline at max level by
+  // the stage scripts). Caddy's on-the-fly encode runs at a fast level and saves
+  // ~1% on the 78MB 26 client; brotli -9 saves ~25%. Caddy leaves a response that
+  // already has Content-Encoding alone. A stale sidecar (older than the file) is
+  // ignored, so a re-staged client can never be served from an old .br.
+  const accept = (c.req.header("accept-encoding") || "").toLowerCase();
+  for (const [enc, ext] of [["br", ".br"], ["gzip", ".gz"]] as const) {
+    if (!new RegExp(`(^|[\\s,])${enc}(;q=(?!0(\\.0*)?(\\s|,|$))[\\d.]+)?(\\s*(,|$))`).test(accept)) continue;
+    try {
+      const ss = await stat(full + ext);
+      const so = await stat(full);
+      if (ss.mtimeMs < so.mtimeMs) continue;
+    } catch { continue; }
+    return new Response(Bun.file(full + ext), {
+      headers: {
+        "Content-Type": f.type || "application/octet-stream", "Content-Encoding": enc,
+        ETag: etag, "Cache-Control": cacheCtl, Vary: "Accept-Encoding",
+      },
+    });
   }
   return new Response(f, {
-    headers: { "Content-Type": f.type || "application/octet-stream", ETag: etag, "Cache-Control": cacheCtl },
+    headers: { "Content-Type": f.type || "application/octet-stream", ETag: etag, "Cache-Control": cacheCtl, Vary: "Accept-Encoding" },
   });
 };
 

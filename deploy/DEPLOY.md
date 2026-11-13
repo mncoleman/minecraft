@@ -208,6 +208,12 @@ Nothing here touches `mc-eagler`.
 8. **Caddy**: add the `@ws26` block from `Caddyfile.snippet` *above* `@ws`,
    validate, reload.
 
+9. **Pregenerate** each new world once (no generation lag while exploring):
+   `docker exec mc-eagler26 rcon-cli -- chunky world <world>` → `chunky center <x> <z>`
+   → `chunky radius 512` → `chunky start` (~2 min per world at ~30 chunks/s).
+10. **Client**: re-run `stage-client-26.sh` after any client change; it also writes
+   `index.html.br`/`.gz` sidecars that mc-auth serves precompressed (78 → 58 MB).
+
 Rollback: `docker compose -f server26/docker-compose.yml down` (keeps
 `server26/data`), remove `RCON26_PASSWORD` from `auth/.env` and recreate mc-auth
 (panel hides 26), drop the `@ws26` block from Caddy.

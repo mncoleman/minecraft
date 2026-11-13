@@ -8,10 +8,11 @@
 # Same crash-isolation contract as server/docker-compose.yml: hard mem/cpu caps,
 # loopback-only publish, Caddy is the only way in (wss://…/26 → 127.0.0.1:25570).
 #
-# Backend = Paper 26.2 (protocol 776) on Java 25. EaglerXPaper (a fork of
-# EaglerXServer that keeps the EaglercraftXServer plugin name + API) adds the
-# browser WebSocket protocol; ViaVersion/ViaBackwards bridge the 26.x client's
-# protocol (777) to the server. The same EaglerJwtAuth jar as the 1.8 server
+# Backend = Paper 26.3 (protocol 777) on Java 25 — the same protocol the 26.x
+# Eaglercraft client speaks, so no Via translation happens for it (on 26.2 every
+# packet was down-translated). EaglerXPaper (a fork of EaglerXServer that keeps
+# the EaglercraftXServer plugin name + API) adds the browser WebSocket protocol;
+# ViaVersion/ViaBackwards are still required by EaglerXPaper. The same EaglerJwtAuth jar as the 1.8 server
 # gates logins.
 #
 # It joins the 1.8 project's network (server_default) as an external network so
@@ -43,8 +44,8 @@ services:
     environment:
       EULA: "TRUE"
       TYPE: "PAPER"
-      VERSION: "26.2"
-      PAPER_BUILD: "135"
+      VERSION: "26.3"
+      PAPER_BUILD: "249"
       UID: "1001"
       GID: "1001"
       ENABLE_RCON: "true"
@@ -59,8 +60,12 @@ services:
       ENABLE_WHITELIST: "FALSE"
       ENFORCE_WHITELIST: "FALSE"
       SPAWN_PROTECTION: "0"
-      VIEW_DISTANCE: "8"
-      SIMULATION_DISTANCE: "6"
+      # Browser clients: every chunk is sent over the WebSocket and meshed in
+      # WASM. 6 sends ~44% fewer chunks than 8 (13x13 vs 17x17); simulation 4
+      # keeps ticking cheap. Raise VIEW_DISTANCE if players want a longer view.
+      VIEW_DISTANCE: "6"
+      SIMULATION_DISTANCE: "4"
+      SYNC_CHUNK_WRITES: "false"
       TZ: "UTC"
 
     volumes:

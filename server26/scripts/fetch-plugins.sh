@@ -6,6 +6,7 @@
 #   ViaVersion/ViaBackwards  required by EaglerXPaper; bridge client protocol.
 #   Multiverse-Core 5, WorldEdit 7, WorldGuard 7, LuckPerms  the world platform
 #                  the panel drives over RCON (modern-command dialect).
+#   Chunky         chunk pregeneration (run once per world, see DEPLOY.md).
 #
 # EaglerJwtAuth (plugin/build.sh) and ClaudeBuild-26 (build-plugin-26/build.sh)
 # are built separately.
@@ -23,7 +24,8 @@ PINNED=(
   "e989440e0aad7e12d4685d7a57df854691b67660966a95ec0450e20ce98e87ab  ViaBackwards.jar  https://cdn.modrinth.com/data/NpvuJQoq/versions/WFO37e8T/ViaBackwards-5.12.2.jar"
   "792252b6bbcf17c94ab8385e595281c830d7a40c946aea1832d8a010702bb630  multiverse-core-5.8.2.jar  https://cdn.modrinth.com/data/3wmN97b8/versions/de7TbcZG/multiverse-core-5.8.2.jar"
   "e0ce67d870ad1fef8a40dd9d7926360caf3bb44722438545d6b20b55f82a0c91  worldedit-bukkit-7.4.6.jar  https://cdn.modrinth.com/data/1u6JkXh5/versions/YFnqiUlL/worldedit-bukkit-7.4.6.jar"
-  "396df065f1cf38bab9878a0f53a776d5a085ebbf3c41813938b73f95d4eaca03  worldguard-bukkit-7.0.19.jar  https://cdn.modrinth.com/data/DKY9btbd/versions/TtfwTyi6/worldguard-bukkit-7.0.19.jar"
+  "070223c535629f3f5d15f002388c1e3ae615a5f4ba051e7ccfb5d716540547a9  worldguard-bukkit-7.0.21.jar  https://cdn.modrinth.com/data/DKY9btbd/versions/fiHLM6oY/worldguard-bukkit-7.0.21.jar"
+  "a2c7877eaacf52605f5d2b08000656fbc43f7bec1eaf6ef9e71b6b9103a9c14f  Chunky-Paper-1.5.66.jar  https://cdn.modrinth.com/data/fALzjamp/versions/RBuKjN4k/Chunky-Paper-1.5.66.jar"
   "49cecb66fa1fd22a133039a490e9c1e5095a238e7cd66eb9d2a16fe6c897550d  LuckPerms-Bukkit-5.5.71.jar  https://cdn.modrinth.com/data/Vebnzrzj/versions/b0mk8uS6/LuckPerms-Bukkit-5.5.71.jar"
 )
 

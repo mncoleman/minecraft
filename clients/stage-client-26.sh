@@ -41,3 +41,14 @@ for old, new in ((b'worldsDB: "worlds",', b'worldsDB: "worlds26",'),
 open(dst, "wb").write(d)
 print("staged", dst, "joinServer =", ws)
 EOF
+
+# Precompressed sidecars, served by mc-auth with Content-Encoding (78MB -> ~58MB
+# with brotli). Regenerated on every stage; mc-auth ignores a sidecar older than
+# index.html, so a stale one is never served.
+rm -f "$OUT/index.html.br" "$OUT/index.html.gz"
+if command -v brotli >/dev/null; then
+  brotli -q 9 -f -o "$OUT/index.html.br" "$OUT/index.html"
+  touch "$OUT/index.html.br"  # brotli copies the source mtime; mc-auth needs it newer
+fi
+gzip -9 -c "$OUT/index.html" > "$OUT/index.html.gz"
+ls -l "$OUT"
