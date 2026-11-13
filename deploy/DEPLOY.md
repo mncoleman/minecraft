@@ -102,6 +102,7 @@ ssh -i "$KEY" ubuntu@161.153.110.196 'cd /home/ubuntu/minecraft/auth && \
     -v mc_auth_data:/data \
     -v /home/ubuntu/minecraft/clients:/clients \
     -v /home/ubuntu/minecraft/server/data:/gamedata \
+    -v /home/ubuntu/minecraft/server26/data:/gamedata26 \
     mc-auth:latest'
 ```
 This is the **live** run command — keep it in sync if you change the container.
@@ -131,7 +132,8 @@ ssh -i "$KEY" ubuntu@161.153.110.196 'cd /home/ubuntu/minecraft/auth && \
     -e RCON_HOST=mc-eagler -e RCON_PORT=25575 \
     -e CLIENTS_DIR=/clients -e GAMEDATA_DIR=/gamedata -e PRESENCE_PORT=25580 \
     -v mc_auth_data:/data -v /home/ubuntu/minecraft/clients:/clients \
-    -v /home/ubuntu/minecraft/server/data:/gamedata mc-auth:latest'
+    -v /home/ubuntu/minecraft/server/data:/gamedata \
+    -v /home/ubuntu/minecraft/server26/data:/gamedata26 mc-auth:latest'
 ```
 The `bun build … /dev/null` step validates the image (catches import/syntax
 errors) before the live container is swapped.
@@ -171,3 +173,46 @@ sudo cp /etc/caddy/Caddyfile.bak.<stamp> /etc/caddy/Caddyfile && sudo systemctl 
 # Services: remove just our containers (nothing else touched)
 docker rm -f mc-eagler mc-auth
 ```
+
+---
+
+## Second server: Minecraft 26 (`server26/` → `mc-eagler26`)
+
+A separate Paper 26.2 server (Java 25) for the 26.x Eaglercraft client. It shares
+only the login with the 1.8 stack: own compose project, own `server26/data`,
+loopback `127.0.0.1:25570`, reached at `wss://minecraft.mncoleman.com/26`.
+Nothing here touches `mc-eagler`.
+
+1. **Ship** `server26/`, `plugin/`, `build-plugin-26/`, `auth/`, `clients/` (add
+   `server26/data` to the rsync excludes alongside `data`).
+2. **Stage the client** (78 MB, not in git):
+   `bash clients/stage-client-26.sh ~/Downloads/eaglercraft-26.3-fe8f1237.html`
+   (injects `joinServer: wss://minecraft.mncoleman.com/26`), then rsync `clients/26/`.
+3. **Env**: `server26/.env` = same `MC_JWT_SECRET` + `MC_PRESENCE_TOKEN` as
+   `server/.env`, plus its own `RCON_PASSWORD`. In `auth/.env` add
+   `RCON26_PASSWORD=<that value>`. The 26 server is hidden in the panel until
+   `RCON26_PASSWORD` is set.
+4. **Start**: `cd server26 && bash scripts/fetch-plugins.sh && docker compose up -d`
+   (joins the external `server_default` network so mc-auth reaches `mc-eagler26`).
+5. **EaglerX config** (after first boot), same as step 4 above:
+   `cp ../server/data/eagler_forwarding.secret data/` (same secret as Caddy), then in
+   `data/plugins/EaglercraftXServer/`: `listener.yml` → `forward_ip: true`,
+   `forward_ip_header: 'X-Forwarded-For'`, `forward_secret: true`,
+   `require_tls: false`; `settings.yml` → `enable_authentication_events: true`.
+6. **Plugins**: `cd plugin && bash build.sh 26` (same EaglerJwtAuth jar as 1.8) and
+   `cd build-plugin-26 && bash build.sh`; then `docker restart mc-eagler26`.
+7. **mc-auth**: add `-v /home/ubuntu/minecraft/server26/data:/gamedata26` to the run
+   command (GAMEDATA26_DIR defaults to `/gamedata26`; `RCON26_HOST` defaults to
+   `mc-eagler26`). The first boot migrates the DB (worlds get a `server` column) —
+   **back up `mc_auth_data` first** (`VACUUM INTO` a copy).
+8. **Caddy**: add the `@ws26` block from `Caddyfile.snippet` *above* `@ws`,
+   validate, reload.
+
+Rollback: `docker compose -f server26/docker-compose.yml down` (keeps
+`server26/data`), remove `RCON26_PASSWORD` from `auth/.env` and recreate mc-auth
+(panel hides 26), drop the `@ws26` block from Caddy.
+
+Command dialect differences the panel handles for 26: Multiverse 5
+(`mv create … --seed`, `mv modify <w> set difficulty`, `mv delete` → `mv confirm <otp>`,
+`mvtp … --unsafe`), `execute as <p> at @s run …`, and extra worlds live under
+`world/dimensions/minecraft/<name>`. Upload/Register stay 1.8-only.

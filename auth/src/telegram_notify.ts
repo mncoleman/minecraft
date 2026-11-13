@@ -78,7 +78,7 @@ export const tgEsc = esc;
 function onlineList(players: OnlinePlayer[]): string {
   if (!players.length) return "No one is online right now.";
   return `Online now (${players.length}):\n` +
-    players.map((p) => `• <b>${esc(p.name)}</b>${p.world ? ` — ${esc(p.world)}` : ""}`).join("\n");
+    players.map((p) => `• <b>${esc(p.name)}</b> [${p.server === "26" ? "26" : "1.8"}]${p.world ? ` — ${esc(p.world)}` : ""}`).join("\n");
 }
 
 async function statusText(): Promise<string> {
@@ -160,16 +160,18 @@ let prev: Set<string> | null = null;
 async function pollPresence(): Promise<void> {
   try {
     const players = await getPresence();
-    const cur = new Set(players.map((p) => p.name.toLowerCase()));
+    // Keyed per server so moving from 1.8 to 26 announces the new join.
+    const key = (p: OnlinePlayer) => `${p.server}:${p.name.toLowerCase()}`;
+    const cur = new Set(players.map(key));
     if (prev === null) {
       prev = cur; // seed only
       return;
     }
     if (enabled()) {
-      const joins = players.filter((p) => !prev!.has(p.name.toLowerCase()) && !IGNORE.has(p.name.toLowerCase()));
+      const joins = players.filter((p) => !prev!.has(key(p)) && !IGNORE.has(p.name.toLowerCase()));
       for (const p of joins) {
         await send(
-          `<b>${esc(p.name)}</b> joined Minecraft${p.world ? ` (world: ${esc(p.world)})` : ""}\n\n${onlineList(players)}`,
+          `<b>${esc(p.name)}</b> joined Minecraft ${p.server === "26" ? "26" : "1.8"}${p.world ? ` (world: ${esc(p.world)})` : ""}\n\n${onlineList(players)}`,
         );
       }
     }

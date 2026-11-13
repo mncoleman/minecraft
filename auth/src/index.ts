@@ -23,6 +23,8 @@ import { startTelegramNotifications } from "./telegram_notify.ts";
 
 bootstrapAllowlist();
 
+import { enabledServers, isEnabled } from "./servers.ts";
+
 const app = new Hono();
 
 app.get("/healthz", (c) => c.json({ ok: true }));
@@ -39,6 +41,8 @@ app.get("/auth/verify", async (c) => {
   // Lets the static Play page show the Friends-tab request dot (it doesn't use
   // the shared shell that computes this server-side). Piggybacks on this call.
   c.header("X-Mc-Friend-Requests", String(pendingFriendRequestCount(s.username)));
+  // Which game servers exist (the Play page shows a "Play 26" button when 26 is on).
+  c.header("X-Mc-Servers", enabledServers().join(","));
   return c.text("ok", 200);
 });
 
@@ -184,6 +188,17 @@ app.get("/", gate, serveClient);
 app.get("/index.html", gate, serveClient);
 app.get("/wasm/*", gate, serveClient);
 app.get("/js/*", gate, serveClient);
+// The 26 client (a single ~78MB HTML, staged by clients/stage-client-26.sh with
+// joinServer = wss://<host>/26). Only served once the 26 server is configured.
+// The page must be opened as a startup link (?server=<wss>&transport=eaglerx):
+// given only joinServer, the client treats a wss URL with a path as a TCP relay.
+const play26 = () => `/26/?server=${encodeURIComponent(config.publicBaseUrl.replace(/^http/, "ws") + "/26")}&transport=eaglerx`;
+app.get("/26", gate, (c) => c.redirect(play26()));
+app.get("/26/*", gate, async (c) => {
+  if (!isEnabled("26")) return c.text("The 26 server isn't set up yet.", 404);
+  if ((c.req.path === "/26/" || c.req.path === "/26/index.html") && !c.req.query("server")) return c.redirect(play26());
+  return serveClient(c);
+});
 
 console.log(`mc-auth listening on :${config.port} (base ${config.publicBaseUrl})`);
 console.log("providers:", providersEnabled());

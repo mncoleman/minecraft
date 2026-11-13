@@ -15,6 +15,24 @@
 minecraft.mncoleman.com {
 	encode zstd gzip
 
+	# 0) Minecraft 26 game socket: wss://<host>/26 → the 26.x server (mc-eagler26).
+	#    Must come BEFORE the generic @ws matcher. Same host as everything else so
+	#    the browser sends the mc_session cookie on the handshake. The path is
+	#    rewritten to / for EaglerXPaper. Same forward secret as the 1.8 listener
+	#    (server26/data/eagler_forwarding.secret is a copy).
+	@ws26 {
+		path /26 /26/
+		header Connection *Upgrade*
+		header Upgrade    websocket
+	}
+	handle @ws26 {
+		rewrite * /
+		reverse_proxy 127.0.0.1:25570 {
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Eagler-Secret "__MC_FWD_SECRET__"
+		}
+	}
+
 	# 1) Game socket — routed by the WebSocket upgrade header so it shares the
 	#    bare domain with the static client. TLS terminates here; plain ws to
 	#    the loopback listener.
@@ -34,6 +52,10 @@ minecraft.mncoleman.com {
 	#    Eaglercraft client (launcher + wasm/ + js/), served from a mounted
 	#    volume. Keeps Caddy filesystem-free, like the other sites.
 	handle {
-		reverse_proxy 127.0.0.1:7900
+		reverse_proxy 127.0.0.1:7900 {
+			transport http {
+				keepalive off
+			}
+		}
 	}
 }

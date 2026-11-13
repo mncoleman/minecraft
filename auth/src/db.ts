@@ -211,6 +211,74 @@ if (!columnExists("teleport_history", "target_user_id")) {
   } catch { /* backfill is best-effort; never block boot */ }
 }
 
+// ── two game servers (1.8 + 26): scope worlds/places/locations by server ──────
+// Every existing row belongs to the 1.8 server ("18"). worlds needs a table
+// rebuild because mv_world_name was globally UNIQUE (both servers have a lobby
+// called "world"); the new keys are UNIQUE(server, mv_world_name) and
+// UNIQUE(server, owner_user_id, name). player_locations is keyed per server.
+// Standard SQLite 12-step rebuild: FKs off, copy, drop, rename, FK check.
+if (!columnExists("worlds", "server")) {
+  db.exec("PRAGMA foreign_keys = OFF;");
+  try {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE worlds_new (
+          id            TEXT PRIMARY KEY,
+          name          TEXT NOT NULL,
+          mv_world_name TEXT NOT NULL,
+          owner_user_id TEXT NOT NULL REFERENCES users(id),
+          world_type    TEXT NOT NULL DEFAULT 'normal',
+          seed          TEXT,
+          source        TEXT,
+          status        TEXT NOT NULL DEFAULT 'active',
+          created_at    INTEGER NOT NULL,
+          server        TEXT NOT NULL DEFAULT '18',   -- '18' (1.8 / Paper 1.12.2) | '26' (Paper 26.x)
+          UNIQUE(server, mv_world_name),
+          UNIQUE(server, owner_user_id, name)
+        );
+        INSERT INTO worlds_new (id,name,mv_world_name,owner_user_id,world_type,seed,source,status,created_at,server)
+          SELECT id,name,mv_world_name,owner_user_id,world_type,seed,source,status,created_at,'18' FROM worlds;
+        DROP TABLE worlds;
+        ALTER TABLE worlds_new RENAME TO worlds;
+        CREATE INDEX IF NOT EXISTS idx_worlds_owner ON worlds(owner_user_id);
+      `);
+      const bad = db.query("PRAGMA foreign_key_check").all();
+      if (bad.length) throw new Error("foreign_key_check failed after worlds rebuild: " + JSON.stringify(bad).slice(0, 300));
+    })();
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON;");
+  }
+}
+if (!columnExists("saved_locations", "server")) {
+  db.exec("ALTER TABLE saved_locations ADD COLUMN server TEXT NOT NULL DEFAULT '18'");
+}
+if (!columnExists("teleport_history", "server")) {
+  db.exec("ALTER TABLE teleport_history ADD COLUMN server TEXT NOT NULL DEFAULT '18'");
+}
+if (!columnExists("pending_destination", "server")) {
+  db.exec("ALTER TABLE pending_destination ADD COLUMN server TEXT NOT NULL DEFAULT '18'");
+}
+if (!columnExists("player_locations", "server")) {
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE player_locations_new (
+        username   TEXT NOT NULL,
+        server     TEXT NOT NULL DEFAULT '18',
+        world      TEXT NOT NULL,
+        x          INTEGER NOT NULL,
+        y          INTEGER NOT NULL,
+        z          INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (username, server)
+      );
+      INSERT INTO player_locations_new (username,server,world,x,y,z,updated_at)
+        SELECT username,'18',world,x,y,z,updated_at FROM player_locations;
+      DROP TABLE player_locations;
+      ALTER TABLE player_locations_new RENAME TO player_locations;
+    `);
+  })();
+}
+
 // ── generic settings kv ────────────────────────────────────────────────────
 export function getSetting(key: string): string | null {
   const r = db.query("SELECT value FROM settings WHERE key = ?").get(key) as { value: string | null } | undefined;

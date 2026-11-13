@@ -22,3 +22,10 @@ cliff build*
 
 # ClaudeBuild compiles against the live server jar (copied by build-plugin/build.sh)
 build-plugin/lib/
+
+# The Minecraft 26 client (~78MB single HTML) is staged by clients/stage-client-26.sh, not committed
+clients/26/
+
+# 26.x server runtime data + ClaudeBuild-26 build output
+server26/data/
+build-plugin-26/lib/

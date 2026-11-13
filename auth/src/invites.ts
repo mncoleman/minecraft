@@ -6,6 +6,7 @@ import { currentSession } from "./session.ts";
 import { signSession } from "./jwt.ts";
 import { setSessionCookie, clientIp, rateLimited } from "./session.ts";
 import { sendInvite, sendVerifyEmail } from "./mailer.ts";
+import { enabledServers } from "./servers.ts";
 import { listWorldsSharedWith, listWorldsOwnedBy, revokeBuild, transferInGameIdentity, grantAdminEntry, revokeAdminEntry } from "./worlds.ts";
 import { rcon } from "./rcon.ts";
 import { icon } from "./layout.ts";
@@ -183,11 +184,11 @@ export function mountInvites(app: Hono): void {
     if (target.is_admin) await revokeAdminEntry(target.username, targetId).catch(() => {});
     const res = deleteUser(targetId);
     if (!res) return c.redirect("/admin?err=" + encodeURIComponent("User not found."));
-    for (const w of shared) { try { await revokeBuild(res.username, w.mv_world_name); } catch { /* best-effort */ } }
+    for (const w of shared) { try { await revokeBuild(res.username, w.mv_world_name, w.server); } catch { /* best-effort */ } }
     // Boot them from the game now if they're online — their session JWT stays
     // valid until expiry, but currentSession() + the in-game plugin now reject a
     // deleted account, so they can't reconnect either.
-    await rcon(`kick ${res.username} Your account was removed`).catch(() => {});
+    for (const srv of enabledServers()) await rcon(`kick ${res.username} Your account was removed`, 5000, srv).catch(() => {});
     return c.redirect("/admin?msg=" + encodeURIComponent(`Deleted ${res.username} and revoked their access.`));
   });
 
