@@ -56,8 +56,6 @@
       padding: .95rem 1rem; border-radius: 12px; border: 1px solid #357a57; background: #2f6f4f;
       color: #fff; font: inherit; font-weight: 700; font-size: 1.05rem; text-decoration: none; }
     .play:hover { background: #357f5a; }
-    .play26 { border-color: #2f5f8f; background: #24527f; }
-    .play26:hover { background: #2b5f92; }
     .alt { display: block; text-align: center; margin: .85rem 0 0; color: #9aa4b2; font-size: .9rem; }
     .alt a { color: #cdd6e2; }
     .rec { display: inline-block; font-size: .68rem; background: #2f4f7f; color: #dce8ff;
@@ -106,16 +104,10 @@
       <a class="play" id="play-primary" href="#" target="_blank" rel="noopener" title="Shortcut: Y — opens the game in a new tab">Play</a>
       <span class="alt" id="alt-line"></span>
 
-      <!-- Second server: Minecraft 26 (modern). Shown once /auth/verify reports it. -->
-      <div id="play26-wrap" style="display:none;margin-top:1rem">
-        <a class="play play26" id="play-26" href="26/" target="_blank" rel="noopener" title="Opens Minecraft 26 in a new tab">Play 26 <span class="rec">new</span></a>
-        <span class="alt">Modern Minecraft. Chrome or Firefox on a computer. Its worlds are separate from 1.8.</span>
-      </div>
-
       <div class="srv">
         <div class="lbl">How it works</div>
         <ol class="steps">
-          <li>Click <b>Play</b> — you connect to the server automatically (no menus). Each Play button is its own server with its own worlds.</li>
+          <li>Click <b>Play</b> — you connect to the server automatically (no menus).</li>
           <li><b>First time only:</b> set your in-game name to <b id="ign">your account name</b> on the title screen → <b>Edit Profile</b>, so it matches your account.</li>
           <li>Use the <a href="/worlds">Worlds</a> tab to <b>Hop in</b> to a world or <b>Join</b> whoever's online.</li>
         </ol>
@@ -171,20 +163,12 @@
 
       // Account info for the nav (username + admin tab).
       fetch("/auth/verify", { credentials: "same-origin" })
-        .then(function (r) { return r.ok ? { u: r.headers.get("X-Mc-User"), a: r.headers.get("X-Mc-Admin") === "1", fr: parseInt(r.headers.get("X-Mc-Friend-Requests") || "0", 10), s: r.headers.get("X-Mc-Servers") } : null; })
+        .then(function (r) { return r.ok ? { u: r.headers.get("X-Mc-User"), a: r.headers.get("X-Mc-Admin") === "1", fr: parseInt(r.headers.get("X-Mc-Friend-Requests") || "0", 10) } : null; })
         .then(function (info) {
           if (!info) return;
           document.getElementById("acct-name").innerHTML = "<b>" + info.u + "</b>" + (info.a ? ' <span class="badge">admin</span>' : "");
           var ign = document.getElementById("ign"); if (ign && info.u) ign.textContent = info.u;
           if (info.a) { document.getElementById("admin-tab").style.display = ""; navMap.a = "/admin"; }
-          if ((info.s || "").split(",").indexOf("26") >= 0) {
-            document.getElementById("play26-wrap").style.display = "";
-            // Startup link: the 26 client needs transport=eaglerx (a wss URL with a
-            // path is otherwise treated as a TCP relay).
-            document.getElementById("play-26").href = "26/?server=" + encodeURIComponent("wss://" + location.host + "/26") + "&transport=eaglerx";
-            // Two editions now: label the original button so the choice is clear.
-            primary.innerHTML = primary.innerHTML.replace(/^Play/, "Play 1.8");
-          }
           if (info.fr > 0) { var ft = document.getElementById("friends-tab"); if (ft) ft.innerHTML = 'Friends <span class="dot on pulse" title="You have new friend requests" style="margin-left:.35rem"></span>'; }
         })
         .catch(function () {});

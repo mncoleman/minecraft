@@ -4,8 +4,9 @@
 // one command, and closes — RCON connects are cheap and this avoids stale
 // sockets for a low-frequency control plane.
 
-// One RCON target per game server (see servers.ts); each has its own queue.
-import { SERVERS, DEFAULT_SERVER, type ServerId } from "./servers.ts";
+const HOST = process.env.RCON_HOST || "mc-eagler";
+const PORT = Number(process.env.RCON_PORT || 25575);
+const PASSWORD = process.env.RCON_PASSWORD || "";
 
 const TYPE_AUTH = 3;
 const TYPE_EXEC = 2;
@@ -30,10 +31,9 @@ export function stripColor(s: string): string {
   return s.replace(/§[0-9a-fk-or]/gi, "");
 }
 
-function runOnce(command: string, timeoutMs: number, srv: ServerId): Promise<string> {
-  const { host: HOST, rconPort: PORT, rconPassword: PASSWORD } = SERVERS[srv];
+function runOnce(command: string, timeoutMs = 5000): Promise<string> {
   return new Promise((resolve, reject) => {
-    if (!PASSWORD) return reject(new Error(`RCON password not set for server ${SERVERS[srv].label}`));
+    if (!PASSWORD) return reject(new Error("RCON_PASSWORD not set"));
     let buf = Buffer.alloc(0);
     let authed = false;
     let out = "";
@@ -84,19 +84,18 @@ function runOnce(command: string, timeoutMs: number, srv: ServerId): Promise<str
   });
 }
 
-// Serialize commands per server through a promise chain.
-const chains: Record<ServerId, Promise<unknown>> = { "18": Promise.resolve(), "26": Promise.resolve() };
+// Serialize all commands through a promise chain.
+let chain: Promise<unknown> = Promise.resolve();
 
-export function rcon(command: string, timeoutMs = 5000, srv: ServerId = DEFAULT_SERVER): Promise<string> {
-  const run = () => runOnce(command, timeoutMs, srv);
-  const result = chains[srv].then(run, run);
-  chains[srv] = result.catch(() => {});
+export function rcon(command: string, timeoutMs = 5000): Promise<string> {
+  const result = chain.then(() => runOnce(command, timeoutMs), () => runOnce(command, timeoutMs));
+  chain = result.catch(() => {});
   return result;
 }
 
 /** Run several commands in order; returns each stripped response. Stops on error. */
-export async function rconAll(commands: string[], srv: ServerId = DEFAULT_SERVER): Promise<string[]> {
+export async function rconAll(commands: string[]): Promise<string[]> {
   const out: string[] = [];
-  for (const c of commands) out.push(stripColor(await rcon(c, 5000, srv)));
+  for (const c of commands) out.push(stripColor(await rcon(c)));
   return out;
 }

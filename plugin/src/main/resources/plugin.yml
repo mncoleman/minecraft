@@ -3,8 +3,5 @@ version: 1.1.0
 author: mncoleman
 description: Validates the mc-auth JWT cookie at the Eaglercraft handshake and locks the in-game username.
 main: com.mncoleman.mc.auth.EaglerJwtAuthPlugin
-# Same jar runs on Paper 1.12.2 (ignores this key) and Paper 26.x (where a
-# missing api-version loads the plugin in legacy mode with a warning).
-api-version: '1.13'
 # Must load after EaglercraftXServer (its API + auth events must exist first).
 depend: [EaglercraftXServer]

@@ -4,10 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# Usage: bash build.sh        -> 1.8 server (../server/data/plugins)
-#        bash build.sh 26     -> 26.x server (../server26/data/plugins)
-# The same jar runs on both (Paper 1.12.2 and Paper 26.x, EaglerXServer API).
-if [ "${1:-}" = "26" ]; then OUT="../server26/data/plugins"; else OUT="../server/data/plugins"; fi
+OUT="../server/data/plugins"
 mkdir -p "$OUT"
 
 # Cache the maven repo on the host so rebuilds are fast.

@@ -3,36 +3,20 @@ import { readFileSync, readdirSync, existsSync, renameSync } from "node:fs";
 import { $ } from "bun";
 import { db, type User } from "./db.ts";
 import { rcon, rconAll, stripColor } from "./rcon.ts";
-import { SERVERS, enabledServers, DEFAULT_SERVER, type ServerId } from "./servers.ts";
 
-// Each server's /data is bind-mounted into mc-auth (GAMEDATA_DIR for 1.8,
-// GAMEDATA26_DIR for 26) so we can read live world state the RCON control plane
-// doesn't cleanly expose.
-const gamedata = (srv: ServerId) => SERVERS[srv].gamedataDir;
+// Multiverse stores per-world state (difficulty, spawn, gamemode) in worlds.yml.
+// The game's data dir is bind-mounted here so we can read live world state the
+// RCON control plane doesn't cleanly expose. GAMEDATA_DIR matches the container.
+const GAMEDATA_DIR = (process.env.GAMEDATA_DIR || "/gamedata").replace(/\/+$/, "");
+const MV_WORLDS_YML = `${GAMEDATA_DIR}/plugins/Multiverse-Core/worlds.yml`;
 
-/** Read a world's difficulty + spawn. 1.8 (Multiverse 2.5): parsed straight from
- *  worlds.yml (the source of truth `mvm set` writes to). 26 (Multiverse 5): from
- *  `mv info` over RCON. Used to show the real difficulty in the panel and get
- *  spawn coords for an exact-teleport fallback. Nulls if unreadable. */
-export async function readMvWorld(mv: string, srv: ServerId = DEFAULT_SERVER): Promise<{ difficulty: string | null; spawn: { x: number; y: number; z: number } | null }> {
-  if (SERVERS[srv].modern) {
-    try {
-      const out = stripColor(await rcon(`mv info ${mv} --page 1`, 5000, srv));
-      const d = out.match(/Difficulty:\s*([A-Za-z]+)/i);
-      const sp = out.match(/Spawn Location:\s*X:\s*(-?[\d.]+)\s*Y:\s*(-?[\d.]+)\s*Z:\s*(-?[\d.]+)/i);
-      return {
-        difficulty: d ? d[1].toLowerCase() : null,
-        spawn: sp ? { x: parseFloat(sp[1]), y: parseFloat(sp[2]), z: parseFloat(sp[3]) } : null,
-      };
-    } catch {
-      return { difficulty: null, spawn: null };
-    }
-  }
-  return readMvWorldYml(mv);
-}
-function readMvWorldYml(mv: string): { difficulty: string | null; spawn: { x: number; y: number; z: number } | null } {
+/** Read a Multiverse world's persisted difficulty + spawn straight from
+ *  worlds.yml (the source of truth `mvm set` writes to). Used to (a) show the
+ *  real difficulty in the panel and (b) get spawn coords for an exact-teleport
+ *  fallback. Returns nulls if the file/world/fields can't be read. */
+export function readMvWorld(mv: string): { difficulty: string | null; spawn: { x: number; y: number; z: number } | null } {
   try {
-    const lines = readFileSync(`${gamedata("18")}/plugins/Multiverse-Core/worlds.yml`, "utf8").split("\n");
+    const lines = readFileSync(MV_WORLDS_YML, "utf8").split("\n");
     let inWorld = false, inSpawn = false;
     let difficulty: string | null = null;
     let x: number | null = null, y: number | null = null, z: number | null = null;
@@ -68,21 +52,15 @@ function readMvWorldYml(mv: string): { difficulty: string | null; spawn: { x: nu
  * The caller MUST ensure the player is offline first (a disconnect flushes their
  * live data to the OLD .dat); transferInGameIdentity kicks + waits before this.
  */
-export function transferPlayerData(oldUsername: string, newUsername: string, srv: ServerId = DEFAULT_SERVER): { moved: number; worlds: string[] } {
-  const GAMEDATA_DIR = gamedata(srv);
+export function transferPlayerData(oldUsername: string, newUsername: string): { moved: number; worlds: string[] } {
   const oldU = offlineUuid(oldUsername);
   const newU = offlineUuid(newUsername);
   if (oldU === newU) return { moved: 0, worlds: [] };
   // subfolder -> file extensions that are keyed by <uuid>
-  // 1.12: <world>/{playerdata,stats,advancements}. 26.x moved them under
-  // <world>/players/{data,stats,advancements} (one global set in "world").
   const kinds: Array<{ sub: string; exts: string[] }> = [
     { sub: "playerdata", exts: [".dat", ".dat_old"] },
     { sub: "stats", exts: [".json"] },
     { sub: "advancements", exts: [".json"] },
-    { sub: "players/data", exts: [".dat", ".dat_old"] },
-    { sub: "players/stats", exts: [".json"] },
-    { sub: "players/advancements", exts: [".json"] },
   ];
   let worldDirs: string[];
   try {
@@ -141,7 +119,6 @@ export interface World {
   source: string | null;
   status: string;
   created_at: number;
-  server: ServerId;
 }
 export interface WorldShare {
   id: string;
@@ -161,8 +138,8 @@ export function sanitizeWorldName(raw: string): string {
 export function getWorld(id: string): World | null {
   return db.query("SELECT * FROM worlds WHERE id = ?").get(id) as World | null;
 }
-export function getWorldByMv(mv: string, srv: ServerId): World | null {
-  return db.query("SELECT * FROM worlds WHERE mv_world_name = ? AND server = ?").get(mv, srv) as World | null;
+export function getWorldByMv(mv: string): World | null {
+  return db.query("SELECT * FROM worlds WHERE mv_world_name = ?").get(mv) as World | null;
 }
 export function listAllWorlds(): World[] {
   return db.query("SELECT * FROM worlds ORDER BY created_at").all() as World[];
@@ -190,8 +167,8 @@ export function sharesForWorld(worldId: string): Array<{ grantee_user_id: string
 }
 export function insertWorld(w: Omit<World, "created_at">): void {
   db.run(
-    "INSERT INTO worlds (id,name,mv_world_name,owner_user_id,world_type,seed,source,status,created_at,server) VALUES (?,?,?,?,?,?,?,?,?,?)",
-    [w.id, w.name, w.mv_world_name, w.owner_user_id, w.world_type, w.seed, w.source, w.status, now(), w.server],
+    "INSERT INTO worlds (id,name,mv_world_name,owner_user_id,world_type,seed,source,status,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+    [w.id, w.name, w.mv_world_name, w.owner_user_id, w.world_type, w.seed, w.source, w.status, now()],
   );
 }
 
@@ -242,12 +219,7 @@ function activePrivateWorlds(): World[] {
 /** Give an admin entry (view) to every private world. Call on promote/rename. */
 export async function grantAdminEntry(username: string): Promise<string[]> {
   const u = offlineUuid(username);
-  const out: string[] = [];
-  for (const srv of enabledServers()) {
-    out.push(...await rconAll(activePrivateWorlds().filter((w) => w.server === srv)
-      .map((w) => `lp user ${u} permission set multiverse.access.${w.mv_world_name} true`), srv));
-  }
-  return out;
+  return rconAll(activePrivateWorlds().map((w) => `lp user ${u} permission set multiverse.access.${w.mv_world_name} true`));
 }
 
 /** Remove the admin-entry grant from every world this account neither owns nor
@@ -255,17 +227,13 @@ export async function grantAdminEntry(username: string): Promise<string[]> {
 export async function revokeAdminEntry(username: string, userId: string): Promise<string[]> {
   const u = offlineUuid(username);
   const keep = new Set((db.query("SELECT world_id FROM world_shares WHERE grantee_user_id = ?").all(userId) as Array<{ world_id: string }>).map((r) => r.world_id));
-  const out: string[] = [];
-  for (const srv of enabledServers()) {
-    out.push(...await rconAll(activePrivateWorlds()
-      .filter((w) => w.server === srv && w.owner_user_id !== userId && !keep.has(w.id))
-      .map((w) => `lp user ${u} permission unset multiverse.access.${w.mv_world_name}`), srv));
-  }
-  return out;
+  return rconAll(activePrivateWorlds()
+    .filter((w) => w.owner_user_id !== userId && !keep.has(w.id))
+    .map((w) => `lp user ${u} permission unset multiverse.access.${w.mv_world_name}`));
 }
 
 /** One-time per-world setup at create/import. __global__ auto-instantiates on flag. */
-export async function provisionWorld(mv: string, ownerUsername: string, srv: ServerId): Promise<string[]> {
+export async function provisionWorld(mv: string, ownerUsername: string): Promise<string[]> {
   if (isLobby(mv)) return [];
   const o = offlineUuid(ownerUsername);
   return rconAll([
@@ -276,28 +244,28 @@ export async function provisionWorld(mv: string, ownerUsername: string, srv: Ser
     `rg addowner -w ${mv} __global__ ${o}`,           // owner can always build
     `lp user ${o} permission set multiverse.access.${mv} true`, // owner can enter
     ...ownerCommandGrants(o, mv),                     // world-scoped op-like commands
-  ], srv);
+  ]);
 }
 
 /** Strip a (previous) owner's world-scoped op command nodes (rename/transfer). */
-export async function revokeOwnerCommands(mv: string, ownerUsername: string, srv: ServerId): Promise<string[]> {
+export async function revokeOwnerCommands(mv: string, ownerUsername: string): Promise<string[]> {
   if (isLobby(mv)) return [];
   const o = offlineUuid(ownerUsername);
-  return rconAll(OWNER_CMD_NODES.map((n) => `lp user ${o} permission unset minecraft.command.${n} world=${mv}`), srv);
+  return rconAll(OWNER_CMD_NODES.map((n) => `lp user ${o} permission unset minecraft.command.${n} world=${mv}`));
 }
 
 /** Grant build access to a user in a world (entry + build). */
-export async function grantBuild(username: string, mv: string, srv: ServerId): Promise<string[]> {
+export async function grantBuild(username: string, mv: string): Promise<string[]> {
   if (isLobby(mv)) return [];
   const u = offlineUuid(username);
   return rconAll([
     `rg addmember -w ${mv} __global__ ${u}`,
     `lp user ${u} permission set multiverse.access.${mv} true`,
-  ], srv);
+  ]);
 }
 
 /** Revoke build access (set false, not unset, for a deterministic deny). */
-export async function revokeBuild(username: string, mv: string, srv: ServerId): Promise<string[]> {
+export async function revokeBuild(username: string, mv: string): Promise<string[]> {
   if (isLobby(mv)) return [];
   const u = offlineUuid(username);
   const admin = !!db.query("SELECT 1 FROM users WHERE username = ? COLLATE NOCASE AND is_admin = 1").get(username);
@@ -305,7 +273,7 @@ export async function revokeBuild(username: string, mv: string, srv: ServerId): 
     `rg removemember -w ${mv} __global__ ${u}`,
     // Admins keep entry (view) to every world; only their build rights go.
     `lp user ${u} permission set multiverse.access.${mv} ${admin ? "true" : "false"}`,
-  ], srv);
+  ]);
 }
 
 /** Teleport a (currently online) player to a world. `mvtp <world>` teleports to
@@ -314,57 +282,27 @@ export async function revokeBuild(username: string, mv: string, srv: ServerId): 
  *  player silently never moves. Fall back to an EXACT-destination teleport
  *  (e:world:x,y,z), which bypasses the safety scan and drops them at the spawn
  *  coords regardless. Owners can then fix it permanently with /mvsetspawn. */
-export async function teleportTo(username: string, mv: string, srv: ServerId): Promise<string> {
-  const out = await rcon(`mvtp ${username} ${mv}`, 5000, srv);
-  if (/no safe location|not safe|unsafe/i.test(stripColor(out))) {
-    // Multiverse 5 takes --unsafe; 2.5 needs the exact e:world:x,y,z destination.
-    if (SERVERS[srv].modern) return rcon(`mvtp ${username} ${mv} --unsafe`, 5000, srv);
-    const { spawn } = await readMvWorld(mv, srv);
-    if (spawn) return rcon(`mvtp ${username} e:${mv}:${spawn.x},${spawn.y},${spawn.z}`, 5000, srv);
+export async function teleportTo(username: string, mv: string): Promise<string> {
+  const out = await rcon(`mvtp ${username} ${mv}`);
+  if (/no safe location/i.test(stripColor(out))) {
+    const { spawn } = readMvWorld(mv);
+    if (spawn) return rcon(`mvtp ${username} e:${mv}:${spawn.x},${spawn.y},${spawn.z}`);
   }
   return out;
-}
-
-/** Folder of a world on disk. 1.12: <data>/<mv>. 26.x: everything lives in the
- *  main save; extra Multiverse worlds sit under world/dimensions/minecraft/<mv>. */
-export function worldDir(mv: string, srv: ServerId): string {
-  if (SERVERS[srv].modern && mv !== LOBBY_MV) return `${gamedata(srv)}/world/dimensions/minecraft/${mv}`;
-  return `${gamedata(srv)}/${mv}`;
 }
 
 /** Does this Multiverse world actually exist on the live server yet? (a worlds.yml
  *  entry or a saved level.dat). Used to adopt a world whose slow `mv create`
  *  finished server-side after the RCON response timed out, instead of orphaning it. */
-export async function liveWorldExists(mv: string, srv: ServerId): Promise<boolean> {
-  if (SERVERS[srv].modern) {
-    try {
-      const out = stripColor(await rcon("mv list --raw", 5000, srv));
-      return new RegExp(`(^|\\s)${mv}(\\s|$)`, "m").test(out);
-    } catch {
-      // No disk fallback on 26: world/dimensions/minecraft/ also holds the lobby's
-      // own dimension folders, so "a folder exists" can't prove a world exists.
-      return false;
-    }
-  }
-  if (readMvWorldYml(mv).difficulty !== null) return true;
-  return existsSync(`${gamedata(srv)}/${mv}/level.dat`);
-}
-
-/** RCON command to create a world, in the server's dialect. seed is pre-sanitized. */
-export function createWorldCommand(mv: string, seed: string, srv: ServerId): string {
-  if (SERVERS[srv].modern) return seed ? `mv create ${mv} normal --seed ${seed}` : `mv create ${mv} normal`;
-  return seed ? `mv create ${mv} normal -s ${seed}` : `mv create ${mv} normal`;
-}
-
-/** RCON command to set a world's persistent difficulty, in the server's dialect. */
-export function difficultyCommand(mv: string, diff: string, srv: ServerId): string {
-  return SERVERS[srv].modern ? `mv modify ${mv} set difficulty ${diff}` : `mvm set diff ${diff} ${mv}`;
+export function liveWorldExists(mv: string): boolean {
+  if (readMvWorld(mv).difficulty !== null) return true;
+  return existsSync(`${GAMEDATA_DIR}/${mv}/level.dat`);
 }
 
 /** Read a world's seed from Multiverse (used for seed-map links). null if unparseable. */
-export async function fetchWorldSeed(mv: string, srv: ServerId): Promise<string | null> {
+export async function fetchWorldSeed(mv: string): Promise<string | null> {
   try {
-    const out = stripColor(await rcon(SERVERS[srv].modern ? `mv info ${mv} --filter seed` : `mv info ${mv}`, 5000, srv));
+    const out = stripColor(await rcon(`mv info ${mv}`));
     const m = out.match(/Seed:\s*(-?\d+)/i);
     return m ? m[1] : null;
   } catch {
@@ -373,10 +311,10 @@ export async function fetchWorldSeed(mv: string, srv: ServerId): Promise<string 
 }
 
 /** Remember where to drop a player on their next join (offline hop). */
-export function setPendingDestination(username: string, mv: string, srv: ServerId, ttlSec = 600): void {
+export function setPendingDestination(username: string, mv: string, ttlSec = 600): void {
   db.run(
-    "INSERT OR REPLACE INTO pending_destination (username, target_world, server, created_at, expires_at) VALUES (?,?,?,?,?)",
-    [username, mv, srv, now(), now() + ttlSec],
+    "INSERT OR REPLACE INTO pending_destination (username, target_world, created_at, expires_at) VALUES (?,?,?,?)",
+    [username, mv, now(), now() + ttlSec],
   );
 }
 
@@ -394,43 +332,42 @@ export function saveNote(worldId: string, body: string, updatedByUserId: string)
 }
 
 // ── last-known player locations (for the command center "go to player") ───────
-export interface PlayerLoc { username: string; server: ServerId; world: string; x: number; y: number; z: number; updated_at: number }
-export function upsertLocation(username: string, srv: ServerId, world: string, x: number, y: number, z: number): void {
+export interface PlayerLoc { username: string; world: string; x: number; y: number; z: number; updated_at: number }
+export function upsertLocation(username: string, world: string, x: number, y: number, z: number): void {
   db.run(
-    `INSERT INTO player_locations (username, server, world, x, y, z, updated_at) VALUES (?,?,?,?,?,?,?)
+    `INSERT INTO player_locations (username, world, x, y, z, updated_at) VALUES (?,?,?,?,?,?)
        ON CONFLICT(username, server) DO UPDATE SET world=excluded.world, x=excluded.x, y=excluded.y, z=excluded.z, updated_at=excluded.updated_at`,
-    [username, srv, world, x, y, z, now()],
+    [username, world, x, y, z, now()],
   );
 }
-/** Last-known spot of a player ON ONE server. */
-export function getLocation(username: string, srv: ServerId): PlayerLoc | null {
-  return db.query("SELECT * FROM player_locations WHERE username = ? COLLATE NOCASE AND server = ?").get(username, srv) as PlayerLoc | null;
+export function getLocation(username: string): PlayerLoc | null {
+  return db.query("SELECT * FROM player_locations WHERE username = ? COLLATE NOCASE").get(username) as PlayerLoc | null;
 }
 
 // ── teleport history (last N the user jumped to) + saved locations ────────────
 export interface TeleportEntry { id: number; world: string; x: number; y: number; z: number; label: string | null; target_user_id: string | null; created_at: number }
 export interface SavedLocation { id: string; world: string; x: number; y: number; z: number; name: string; created_at: number }
 
-export function recordTeleport(userId: string, srv: ServerId, world: string, x: number, y: number, z: number, label: string, targetUserId: string | null = null): void {
-  db.run("INSERT INTO teleport_history (user_id, server, world, x, y, z, label, target_user_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)", [userId, srv, world, x, y, z, label, targetUserId, now()]);
-  // keep only the 5 most recent per user, PER WORLD (per server)
+export function recordTeleport(userId: string, world: string, x: number, y: number, z: number, label: string, targetUserId: string | null = null): void {
+  db.run("INSERT INTO teleport_history (user_id, world, x, y, z, label, target_user_id, created_at) VALUES (?,?,?,?,?,?,?,?)", [userId, world, x, y, z, label, targetUserId, now()]);
+  // keep only the 5 most recent per user, PER WORLD
   db.run(
-    `DELETE FROM teleport_history WHERE user_id = ? AND server = ? AND world = ? AND id NOT IN (
-       SELECT id FROM teleport_history WHERE user_id = ? AND server = ? AND world = ? ORDER BY id DESC LIMIT 5)`,
-    [userId, srv, world, userId, srv, world],
+    `DELETE FROM teleport_history WHERE user_id = ? AND world = ? AND id NOT IN (
+       SELECT id FROM teleport_history WHERE user_id = ? AND world = ? ORDER BY id DESC LIMIT 5)`,
+    [userId, world, userId, world],
   );
 }
-export function recentTeleports(userId: string, srv: ServerId, world: string): TeleportEntry[] {
-  return db.query("SELECT id, world, x, y, z, label, target_user_id, created_at FROM teleport_history WHERE user_id = ? AND server = ? AND world = ? ORDER BY id DESC LIMIT 5").all(userId, srv, world) as TeleportEntry[];
+export function recentTeleports(userId: string, world: string): TeleportEntry[] {
+  return db.query("SELECT id, world, x, y, z, label, target_user_id, created_at FROM teleport_history WHERE user_id = ? AND world = ? ORDER BY id DESC LIMIT 5").all(userId, world) as TeleportEntry[];
 }
-export function listSavedLocations(userId: string, srv: ServerId, world: string): SavedLocation[] {
-  return db.query("SELECT id, world, x, y, z, name, created_at FROM saved_locations WHERE user_id = ? AND server = ? AND world = ? ORDER BY name COLLATE NOCASE").all(userId, srv, world) as SavedLocation[];
+export function listSavedLocations(userId: string, world: string): SavedLocation[] {
+  return db.query("SELECT id, world, x, y, z, name, created_at FROM saved_locations WHERE user_id = ? AND world = ? ORDER BY name COLLATE NOCASE").all(userId, world) as SavedLocation[];
 }
-export function saveLocation(userId: string, srv: ServerId, name: string, world: string, x: number, y: number, z: number): void {
-  db.run("INSERT INTO saved_locations (id, user_id, server, world, x, y, z, name, created_at) VALUES (?,?,?,?,?,?,?,?,?)", [randomUUID(), userId, srv, world, x, y, z, name, now()]);
+export function saveLocation(userId: string, name: string, world: string, x: number, y: number, z: number): void {
+  db.run("INSERT INTO saved_locations (id, user_id, world, x, y, z, name, created_at) VALUES (?,?,?,?,?,?,?,?)", [randomUUID(), userId, world, x, y, z, name, now()]);
 }
-export function updateSavedLocation(userId: string, srv: ServerId, id: string, name: string, world: string, x: number, y: number, z: number): void {
-  db.run("UPDATE saved_locations SET name=?, world=?, x=?, y=?, z=? WHERE id=? AND user_id=? AND server=?", [name, world, x, y, z, id, userId, srv]);
+export function updateSavedLocation(userId: string, id: string, name: string, world: string, x: number, y: number, z: number): void {
+  db.run("UPDATE saved_locations SET name=?, world=?, x=?, y=?, z=? WHERE id=? AND user_id=?", [name, world, x, y, z, id, userId]);
 }
 export function deleteSavedLocation(userId: string, id: string): void {
   db.run("DELETE FROM saved_locations WHERE id=? AND user_id=?", [id, userId]);
@@ -442,12 +379,12 @@ export async function shareWorld(world: World, grantee: User, grantedByUserId: s
     "INSERT OR IGNORE INTO world_shares (id,world_id,grantee_user_id,granted_by,created_at) VALUES (?,?,?,?,?)",
     [randomUUID(), world.id, grantee.id, grantedByUserId, now()],
   );
-  await grantBuild(grantee.username, world.mv_world_name, world.server);
+  await grantBuild(grantee.username, world.mv_world_name);
 }
 
 export async function unshareWorld(world: World, grantee: User): Promise<void> {
   db.run("DELETE FROM world_shares WHERE world_id = ? AND grantee_user_id = ?", [world.id, grantee.id]);
-  await revokeBuild(grantee.username, world.mv_world_name, world.server);
+  await revokeBuild(grantee.username, world.mv_world_name);
 }
 
 /**
@@ -466,18 +403,18 @@ export async function reassignWorldOwner(world: World, newOwner: User, adminUser
   // Flip ownership first (may throw on UNIQUE(owner_user_id, name) — that's caught upstream).
   db.run("UPDATE worlds SET owner_user_id = ? WHERE id = ?", [newOwner.id, world.id]);
   // New owner: full owner provisioning; and they shouldn't linger as a 'shared' row.
-  await provisionWorld(world.mv_world_name, newOwner.username, world.server);
+  await provisionWorld(world.mv_world_name, newOwner.username);
   db.run("DELETE FROM world_shares WHERE world_id = ? AND grantee_user_id = ?", [world.id, newOwner.id]);
   // Old owner: drop owner region + op nodes, keep as a shared build member.
   if (oldOwner) {
     const oldUuid = offlineUuid(oldOwner.username);
-    await rconAll([`rg removeowner -w ${world.mv_world_name} __global__ ${oldUuid}`], world.server).catch(() => {});
-    await revokeOwnerCommands(world.mv_world_name, oldOwner.username, world.server).catch(() => {});
+    await rconAll([`rg removeowner -w ${world.mv_world_name} __global__ ${oldUuid}`]).catch(() => {});
+    await revokeOwnerCommands(world.mv_world_name, oldOwner.username).catch(() => {});
     db.run(
       "INSERT OR IGNORE INTO world_shares (id, world_id, grantee_user_id, granted_by, created_at) VALUES (?,?,?,?,?)",
       [randomUUID(), world.id, oldOwner.id, adminUserId, now()],
     );
-    await grantBuild(oldOwner.username, world.mv_world_name, world.server).catch(() => {});
+    await grantBuild(oldOwner.username, world.mv_world_name).catch(() => {});
   }
 }
 
@@ -494,15 +431,11 @@ export async function transferInGameIdentity(userId: string, oldUsername: string
   // 1. Kick the old name FIRST so a connected player disconnects (which flushes
   //    their live character data to the OLD uuid .dat) and will reconnect cleanly
   //    under the new identity. Harmless no-op if they're offline.
-  for (const srv of enabledServers()) {
-    await rcon(`kick ${oldUsername} Your username changed — reconnect to continue`, 5000, srv).catch(() => {});
-  }
+  await rcon(`kick ${oldUsername} Your username changed — reconnect to continue`).catch(() => {});
   // 2. Let the disconnect-save settle before we move files off the old uuid.
   await new Promise((r) => setTimeout(r, 1500));
-  // 3. Carry inventory/enderchest/position/XP/stats/advancements old uuid -> new,
-  //    on every server (each keeps its own character data).
-  let movedTotal = 0;
-  for (const srv of enabledServers()) movedTotal += transferPlayerData(oldUsername, newUsername, srv).moved;
+  // 3. Carry inventory/enderchest/position/XP/stats/advancements old uuid -> new.
+  const pd = transferPlayerData(oldUsername, newUsername);
   // 4. Owned worlds: strip the old identity as owner/member/access, then
   //    re-provision the new one (provisionWorld re-adds owner + access).
   for (const w of listWorldsOwnedBy(userId)) {
@@ -510,9 +443,9 @@ export async function transferInGameIdentity(userId: string, oldUsername: string
       `rg removeowner -w ${w.mv_world_name} __global__ ${oldUuid}`,
       `rg removemember -w ${w.mv_world_name} __global__ ${oldUuid}`,
       `lp user ${oldUuid} permission set multiverse.access.${w.mv_world_name} false`,
-    ], w.server).catch(() => {});
-    await revokeOwnerCommands(w.mv_world_name, oldUsername, w.server).catch(() => {}); // strip old uuid's op nodes
-    await provisionWorld(w.mv_world_name, newUsername, w.server).catch(() => {});      // re-grants under new uuid
+    ]).catch(() => {});
+    await revokeOwnerCommands(w.mv_world_name, oldUsername).catch(() => {}); // strip old uuid's op nodes
+    await provisionWorld(w.mv_world_name, newUsername).catch(() => {});      // re-grants under new uuid
   }
   // 4b. Admin entry: strip it from the old uuid, grant it to the new one.
   const isAdm = !!db.query("SELECT 1 FROM users WHERE id = ? AND is_admin = 1").get(userId);
@@ -522,16 +455,16 @@ export async function transferInGameIdentity(userId: string, oldUsername: string
   }
   // 5. Shared-with worlds: revoke the old uuid's build grant, grant the new uuid's.
   for (const w of listWorldsSharedWith(userId)) {
-    await revokeBuild(oldUsername, w.mv_world_name, w.server).catch(() => {});
-    await grantBuild(newUsername, w.mv_world_name, w.server).catch(() => {});
+    await revokeBuild(oldUsername, w.mv_world_name).catch(() => {});
+    await grantBuild(newUsername, w.mv_world_name).catch(() => {});
   }
-  return { moved: movedTotal };
+  return { moved: pd.moved };
 }
 
 // Worlds that must never be deleted: Bukkit's defaults (the shared lobby is
 // "world") and the seeded bootstrap world (which would just be re-created on the
 // next boot, causing drift).
-const PROTECTED_WORLDS = new Set(["world", "world_nether", "world_the_end", "cliffbuild", "overworld", "the_nether", "the_end"]);
+const PROTECTED_WORLDS = new Set(["world", "world_nether", "world_the_end", "cliffbuild"]);
 export function isProtectedWorld(mv: string): boolean { return PROTECTED_WORLDS.has(mv); }
 
 /**
@@ -543,17 +476,14 @@ export function isProtectedWorld(mv: string): boolean { return PROTECTED_WORLDS.
  */
 export async function deleteWorld(world: World): Promise<{ ok: boolean; error?: string }> {
   const mv = world.mv_world_name;
-  const srv = world.server;
   if (isProtectedWorld(mv) || !/^[a-z0-9_-]{1,32}$/.test(mv)) {
     return { ok: false, error: "That world is protected or has an invalid name." };
   }
   // 1. Remove the live world. Multiverse's delete needs a confirm from the SAME
   //    console sender, which RCON is — run both back to back.
   try {
-    const out = stripColor(await rcon(`mv delete ${mv}`, 5000, srv));
-    // Multiverse 5 demands the one-time number it prints ("Run /mv confirm 428").
-    const otp = out.match(/confirm\s+(\d+)/i);
-    await rcon(otp ? `mv confirm ${otp[1]}` : `mv confirm`, 15000, srv);
+    await rcon(`mv delete ${mv}`);
+    await rcon(`mv confirm`);
   } catch (e: any) {
     return { ok: false, error: "Couldn't remove the world from the server (RCON): " + (e?.message || e) };
   }
@@ -561,21 +491,21 @@ export async function deleteWorld(world: World): Promise<{ ok: boolean; error?: 
   //    the world). Owner: command nodes + access; every shared member: build.
   const owner = db.query("SELECT username FROM users WHERE id = ?").get(world.owner_user_id) as { username: string } | null;
   if (owner) {
-    await revokeOwnerCommands(mv, owner.username, srv).catch(() => {});
-    await rconAll([`lp user ${offlineUuid(owner.username)} permission unset multiverse.access.${mv}`], srv).catch(() => {});
+    await revokeOwnerCommands(mv, owner.username).catch(() => {});
+    await rconAll([`lp user ${offlineUuid(owner.username)} permission unset multiverse.access.${mv}`]).catch(() => {});
   }
   // Admin entry grants (see provisionWorld) — don't let them outlive the world.
-  await rconAll(adminUsernames().map((a) => `lp user ${offlineUuid(a)} permission unset multiverse.access.${mv}`), srv).catch(() => {});
-  for (const s of sharesForWorld(world.id)) await revokeBuild(s.username, mv, srv).catch(() => {});
+  await rconAll(adminUsernames().map((a) => `lp user ${offlineUuid(a)} permission unset multiverse.access.${mv}`)).catch(() => {});
+  for (const s of sharesForWorld(world.id)) await revokeBuild(s.username, mv).catch(() => {});
   // 3. Force-remove any leftover world directory (Bun's $ escapes the interpolation;
   //    mv is charset-validated above so this can't traverse).
-  await $`rm -rf ${worldDir(mv, srv)}`.quiet().nothrow();
+  await $`rm -rf ${GAMEDATA_DIR}/${mv}`.quiet().nothrow();
   // 4. Delete every DB row for the world in one transaction.
   db.transaction(() => {
     db.run("DELETE FROM world_shares WHERE world_id = ?", [world.id]);
     db.run("DELETE FROM world_notes WHERE world_id = ?", [world.id]);
-    db.run("DELETE FROM saved_locations WHERE world = ? AND server = ?", [mv, srv]);
-    db.run("DELETE FROM teleport_history WHERE world = ? AND server = ?", [mv, srv]);
+    db.run("DELETE FROM saved_locations WHERE world = ?", [mv]);
+    db.run("DELETE FROM teleport_history WHERE world = ?", [mv]);
     db.run("DELETE FROM worlds WHERE id = ?", [world.id]);
   })();
   return { ok: true };
@@ -587,34 +517,31 @@ export function bootstrapWorlds(): void {
   if (!ownerEmail) return;
   const owner = db.query("SELECT * FROM users WHERE email = ?").get(ownerEmail) as User | null;
   if (!owner) return; // owner hasn't logged in yet; seed on a later boot
-  if (!getWorldByMv("cliffbuild", "18")) {
-    insertWorld({ id: randomUUID(), name: "Cliff Build", mv_world_name: "cliffbuild", owner_user_id: owner.id, world_type: "normal", seed: null, source: "import", status: "active", server: "18" });
+  if (!getWorldByMv("cliffbuild")) {
+    insertWorld({ id: randomUUID(), name: "Cliff Build", mv_world_name: "cliffbuild", owner_user_id: owner.id, world_type: "normal", seed: null, source: "import", status: "active" });
     console.log(`seeded world: cliffbuild (owner ${owner.username})`);
   }
-  // Register each server's shared lobby (display-only; see LOBBY_MV — never provisioned).
-  for (const srv of enabledServers()) {
-    if (!getWorldByMv(LOBBY_MV, srv)) {
-      insertWorld({ id: randomUUID(), name: srv === "18" ? "Lobby" : "Lobby (26)", mv_world_name: LOBBY_MV, owner_user_id: owner.id, world_type: "normal", seed: null, source: "import", status: "active", server: srv });
-      console.log(`seeded world: ${LOBBY_MV} on ${SERVERS[srv].label} (lobby, open to all)`);
-    }
+  // Register the shared lobby (display-only; see LOBBY_MV — never provisioned).
+  if (!getWorldByMv(LOBBY_MV)) {
+    insertWorld({ id: randomUUID(), name: "Lobby", mv_world_name: LOBBY_MV, owner_user_id: owner.id, world_type: "normal", seed: null, source: "import", status: "active" });
+    console.log(`seeded world: ${LOBBY_MV} (lobby, open to all)`);
   }
 }
 
 /** Reconciler: re-push every active share's grant so the live server self-heals. */
 export async function reconcile(): Promise<{ worlds: number; grants: number }> {
-  const on = new Set(enabledServers());
-  const worlds = listAllWorlds().filter((w) => w.status === "active" && on.has(w.server));
+  const worlds = listAllWorlds().filter((w) => w.status === "active");
   let grants = 0;
   for (const w of worlds) {
     const owner = db.query("SELECT username FROM users WHERE id = ?").get(w.owner_user_id) as { username: string } | null;
-    if (owner) await provisionWorld(w.mv_world_name, owner.username, w.server).catch(() => {});
+    if (owner) await provisionWorld(w.mv_world_name, owner.username).catch(() => {});
     for (const s of sharesForWorld(w.id)) {
-      await grantBuild(s.username, w.mv_world_name, w.server).catch(() => {});
+      await grantBuild(s.username, w.mv_world_name).catch(() => {});
       grants++;
     }
     // Backfill the seed once (for seed-map links); self-heals existing worlds.
     if (!w.seed) {
-      const seed = await fetchWorldSeed(w.mv_world_name, w.server);
+      const seed = await fetchWorldSeed(w.mv_world_name);
       if (seed) db.run("UPDATE worlds SET seed = ? WHERE id = ?", [seed, w.id]);
     }
   }
