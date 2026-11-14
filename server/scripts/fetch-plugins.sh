@@ -31,9 +31,9 @@ for jar in "${TEMPLATE_JARS[@]}"; do
   echo "  - $jar"
   curl -fsSL "$BASE/$jar" -o "$DEST/$jar"
 done
-# EaglerXServer pinned to the official v1.1.0 release (NOT the template's 1.0.7).
-echo "  - EaglerXServer.jar (v1.1.0 official release)"
-curl -fsSL "https://github.com/lax1dude/eaglerxserver/releases/download/v1.1.0/EaglerXServer.jar" -o "$DEST/EaglerXServer.jar"
+# EaglerXServer pinned to the official v1.1.1 release (NOT the template's 1.0.7).
+echo "  - EaglerXServer.jar (v1.1.1 official release)"
+curl -fsSL "https://github.com/lax1dude/eaglerxserver/releases/download/v1.1.1/EaglerXServer.jar" -o "$DEST/EaglerXServer.jar"
 
 # --- (2) Multi-world platform plugins (pinned URL + SHA-256) ------------------
 # Format: "<sha256>  <filename>  <url>"
@@ -66,4 +66,4 @@ echo "Recording checksums to data/plugins/SHA256SUMS:"
 
 echo
 echo "Done. The custom auth plugin (mc-eagler-auth.jar) is built separately by"
-echo "plugin/build.sh. EaglerXServer.jar is upgraded to v1.1.0 during deploy."
+echo "plugin/build.sh. EaglerXServer.jar is upgraded to v1.1.1 during deploy."
