@@ -16,9 +16,9 @@ import { ownedWorldCount } from "./db.ts";
 import { visibleOnlineUsernames, listFriends, areFriends } from "./friends.ts";
 
 function canAccess(w: World, m: { sub: string; admin: boolean }): boolean {
-  if (isLobby(w.mv_world_name)) return true; // shared lobby is open to everyone
-  if (w.owner_user_id === m.sub || m.admin) return true;
-  return !!db.query("SELECT 1 FROM world_shares WHERE world_id=? AND grantee_user_id=?").get(w.id, m.sub);
+  // Private friends-only server: every logged-in player has full access to every
+  // world (entry, build, command pages). Ownership still gates rename/delete/share.
+  return true;
 }
 import { rcon, stripColor } from "./rcon.ts";
 import { config } from "./config.ts";
