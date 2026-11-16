@@ -69,7 +69,8 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
   // Admins also see every other active world (not owned by / shared with them).
   const mine = new Set([...owned, ...shared].map((w) => w.id));
   const lobby = getWorldByMv("world");
-  const others = me.admin ? listAllWorlds().filter((w) => w.status === "active" && !mine.has(w.id) && !isLobby(w.mv_world_name)) : [];
+  // Everyone has access to every world, so every non-owned active world is listed.
+  const others = listAllWorlds().filter((w) => w.status === "active" && !mine.has(w.id) && !isLobby(w.mv_world_name));
   // Privacy: non-admins only see friends, world co-members, and themselves online.
   const visible = me.admin ? null : visibleOnlineUsernames(me.sub);
   const online = visible ? onlineAll.filter((p) => visible.has(p.name.toLowerCase())) : onlineAll;
@@ -118,8 +119,7 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
       <span><b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code></span>
       ${cardLinks(w)}
     </div>
-    ${shareForm(w)}
-    <table>${memberRows(w)}</table>
+    ${/* sharing UI hidden: all worlds are open to everyone (backend kept) */ ""}
   </div>`;
 
   const sharedBlock = (w: World & { owner_username: string }) => `<div class="world"><div class="row" style="justify-content:space-between;margin:0">
@@ -127,9 +127,8 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
       ${cardLinks(w)}</div></div>`;
 
   const adminBlock = (w: World) => {
-    const members = sharesForWorld(w.id).map((m) => esc(m.username)).join(", ");
     return `<div class="world"><div class="row" style="justify-content:space-between;margin:0">
-      <span><b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">— owner: ${esc(userById(w.owner_user_id)?.username || "?")}${members ? ` · members: ${members}` : ""}</span></span>
+      <span><b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">— owner: ${esc(userById(w.owner_user_id)?.username || "?")}</span></span>
       ${cardLinks(w)}</div></div>`;
   };
 
@@ -153,8 +152,8 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
     <p class="sub">Having access to a world means you can build in it. Hit <b>Play</b> first (it connects you to the server), then use <b>Hop in</b> or <b>Join →</b> to teleport.</p>
 
     <div class="card">
-      <p style="margin:.1rem 0 .6rem"><b>What's a world?</b> A world is a Minecraft map. When you first hit <b>Play</b> you land in the shared <b>lobby</b> — a common area anyone can visit. It saves, but it belongs to everyone.</p>
-      <p style="margin:0"><b>Want your own space?</b> Create a world below. It's yours, your builds there save automatically, and only you (plus anyone you grant access) can build in it.</p>
+      <p style="margin:.1rem 0 .6rem"><b>What's a world?</b> A world is a Minecraft map. When you first hit <b>Play</b> you land in the shared <b>world</b> — a common area anyone can visit. It saves, but it belongs to everyone.</p>
+      <p style="margin:0"><b>Want your own space?</b> Create a world below. It's yours (you're its owner), your builds there save automatically, and everyone on the server can visit and build in it.</p>
     </div>
 
     <h2>Who's online</h2>
@@ -164,24 +163,20 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
         ? '<p class="hint">No one is online right now. Hit <b>Play</b> to jump on.</p>'
         : '<p class="hint">None of your friends are online right now. You only see friends and people you share a world with here — add friends in the <a href="/friends">Friends</a> tab.</p>'}
 
-    ${lobby ? `<h2>Lobby</h2>
+    ${lobby ? `<h2>world</h2>
     <div class="world"><div class="row" style="justify-content:space-between;margin:0">
-      <span><b>${esc(lobby.name)}</b> <code>${esc(lobby.mv_world_name)}</code> <span class="hint">— shared by everyone, anyone can build</span></span>
+      <span><b>${esc(lobby.mv_world_name)}</b> <span class="hint">— the main shared world, anyone can build</span></span>
       ${cardLinks(lobby)}</div></div>` : ""}
 
     <h2>My worlds</h2>
     ${owned.length ? owned.map(ownedBlock).join("") : '<p class="hint">You don\'t own any worlds yet — create one below.</p>'}
 
-    <h2>Shared with me</h2>
-    ${shared.length ? shared.map(sharedBlock).join("") : '<p class="hint">Nothing shared with you yet.</p>'}
-${me.admin ? `
-    <h2>All other worlds <span class="hint">(admin)</span></h2>
+    <h2>Everyone's worlds</h2>
     ${others.length ? others.map(adminBlock).join("") : '<p class="hint">No other worlds.</p>'}
-` : ""}
 
     <h2>Create a world</h2>
     <div class="card">
-      <p class="hint" style="margin:.1rem 0 .7rem">Pick a short name (letters, numbers and dashes). You'll become its owner, and you can share build access with friends from your world card above.</p>
+      <p class="hint" style="margin:.1rem 0 .7rem">Pick a short name (letters, numbers and dashes). You'll become its owner; everyone can visit and build in it.</p>
       ${atUserCap
         ? `<p class="hint" style="margin:0">You've reached your limit of ${PER_USER_WORLD_CAP} worlds. Ask an admin if you need more.</p>`
         : `<form id="create-form" method="post" action="/worlds/create" class="row" style="margin:0"><input name="name" placeholder="my world name" required/><input name="seed" placeholder="seed (optional)"/><button class="btn-primary">Create</button></form>
