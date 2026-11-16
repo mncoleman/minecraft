@@ -115,7 +115,7 @@ function adminPage(me: { sub: string; username: string; owner: boolean }, online
         : `<button type="button" class="btn-danger mc-del" data-id="${w.id}" data-name="${esc(w.name)}" data-mv="${esc(w.mv_world_name)}" data-shared="${shared}">Delete</button>`;
       return `<div class="world">
         <div class="row" style="justify-content:space-between;margin:0;gap:.5rem">
-          <span><b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">owner: ${esc(o?.username || "?")} · ${shared} shared</span></span>
+          <span><span class="badge">${w.server === "26" ? "26" : "1.8"}</span> <b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">owner: ${esc(o?.username || "?")} · ${shared} shared</span></span>
           <span class="row" style="margin:0;gap:.4rem">
             ${opts && w.mv_world_name !== "world"
               ? `<form method="post" action="/worlds/${w.id}/reassign" class="row" style="margin:0" onsubmit="return confirm('Reassign ${esc(w.name)} to the selected user? The current owner becomes a shared build member, and you can then delete them if needed.')">

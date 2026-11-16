@@ -23,6 +23,8 @@ import { startTelegramNotifications } from "./telegram_notify.ts";
 
 bootstrapAllowlist();
 
+import { enabledServers, isEnabled } from "./servers.ts";
+
 const app = new Hono();
 
 app.get("/healthz", (c) => c.json({ ok: true }));
@@ -39,6 +41,8 @@ app.get("/auth/verify", async (c) => {
   // Lets the static Play page show the Friends-tab request dot (it doesn't use
   // the shared shell that computes this server-side). Piggybacks on this call.
   c.header("X-Mc-Friend-Requests", String(pendingFriendRequestCount(s.username)));
+  // Which game servers exist (the Play page shows a "Play 26" button when 26 is on).
+  c.header("X-Mc-Servers", enabledServers().join(","));
   return c.text("ok", 200);
 });
 
@@ -172,10 +176,30 @@ const serveClient = async (c: Context): Promise<Response> => {
   }
   const cacheCtl = "public, max-age=0, must-revalidate";
   if (c.req.header("if-none-match") === etag) {
-    return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": cacheCtl } });
+    return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": cacheCtl, Vary: "Accept-Encoding" } });
+  }
+  // Precompressed sidecars (<file>.br / <file>.gz, made offline at max level by
+  // the stage scripts). Caddy's on-the-fly encode runs at a fast level and saves
+  // ~1% on the 78MB 26 client; brotli -9 saves ~25%. Caddy leaves a response that
+  // already has Content-Encoding alone. A stale sidecar (older than the file) is
+  // ignored, so a re-staged client can never be served from an old .br.
+  const accept = (c.req.header("accept-encoding") || "").toLowerCase();
+  for (const [enc, ext] of [["br", ".br"], ["gzip", ".gz"]] as const) {
+    if (!new RegExp(`(^|[\\s,])${enc}(;q=(?!0(\\.0*)?(\\s|,|$))[\\d.]+)?(\\s*(,|$))`).test(accept)) continue;
+    try {
+      const ss = await stat(full + ext);
+      const so = await stat(full);
+      if (ss.mtimeMs < so.mtimeMs) continue;
+    } catch { continue; }
+    return new Response(Bun.file(full + ext), {
+      headers: {
+        "Content-Type": f.type || "application/octet-stream", "Content-Encoding": enc,
+        ETag: etag, "Cache-Control": cacheCtl, Vary: "Accept-Encoding",
+      },
+    });
   }
   return new Response(f, {
-    headers: { "Content-Type": f.type || "application/octet-stream", ETag: etag, "Cache-Control": cacheCtl },
+    headers: { "Content-Type": f.type || "application/octet-stream", ETag: etag, "Cache-Control": cacheCtl, Vary: "Accept-Encoding" },
   });
 };
 
@@ -184,6 +208,17 @@ app.get("/", gate, serveClient);
 app.get("/index.html", gate, serveClient);
 app.get("/wasm/*", gate, serveClient);
 app.get("/js/*", gate, serveClient);
+// The 26 client (a single ~78MB HTML, staged by clients/stage-client-26.sh with
+// joinServer = wss://<host>/26). Only served once the 26 server is configured.
+// The page must be opened as a startup link (?server=<wss>&transport=eaglerx):
+// given only joinServer, the client treats a wss URL with a path as a TCP relay.
+const play26 = () => `/26/?server=${encodeURIComponent(config.publicBaseUrl.replace(/^http/, "ws") + "/26")}&transport=eaglerx`;
+app.get("/26", gate, (c) => c.redirect(play26()));
+app.get("/26/*", gate, async (c) => {
+  if (!isEnabled("26")) return c.text("The 26 server isn't set up yet.", 404);
+  if ((c.req.path === "/26/" || c.req.path === "/26/index.html") && !c.req.query("server")) return c.redirect(play26());
+  return serveClient(c);
+});
 
 console.log(`mc-auth listening on :${config.port} (base ${config.publicBaseUrl})`);
 console.log("providers:", providersEnabled());
