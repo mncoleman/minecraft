@@ -127,11 +127,12 @@ matches the live container exactly.
 ssh -i "$KEY" ubuntu@161.153.110.196 'cd /home/ubuntu/minecraft/auth && \
   docker build -t mc-auth:latest . && \
   docker run --rm mc-auth:latest bun build src/index.ts --target bun --outfile /dev/null && \
-  docker rm -f mc-auth && docker run -d --name mc-auth --restart unless-stopped --memory=512m \
+  docker rm -f mc-auth && docker run -d --name mc-auth --restart unless-stopped --memory=512m --cpus=1.0 \
+    --user 1001:1001 --security-opt no-new-privileges:true --cap-drop ALL \
     --network server_default -p 127.0.0.1:7900:7900 --env-file .env \
     -e RCON_HOST=mc-eagler -e RCON_PORT=25575 \
     -e CLIENTS_DIR=/clients -e GAMEDATA_DIR=/gamedata -e PRESENCE_PORT=25580 \
-    -v mc_auth_data:/data -v /home/ubuntu/minecraft/clients:/clients \
+    -v mc_auth_data:/data -v /home/ubuntu/minecraft/clients:/clients:ro \
     -v /home/ubuntu/minecraft/server/data:/gamedata \
     -v /home/ubuntu/minecraft/server26/data:/gamedata26 mc-auth:latest'
 ```
