@@ -53,7 +53,7 @@ const VERSION_NOTES: string[] = [
 
 const FAQS: { q: string; a: string }[] = [
   { q: "I got kicked and told to rename. What do I do?", a: "Set your in-game name to exactly your account name, matching capital and lowercase letters, under Edit Profile on the title screen. This is the system protecting your worlds and builds, not a bug." },
-  { q: "How do I get my own world instead of the shared world?", a: "Open the Worlds tab and create a world. Your builds there save automatically." },
+  { q: "How do I get my own world instead of the Shared World?", a: "Open the Worlds tab and create a world. Your builds there save automatically." },
   { q: "How do I let a friend build in my world?", a: "Add them on the Friends tab, then use the share control on your world (Worlds tab) to grant them build access." },
   { q: "Why can I not craft a crossbow, a shield, or some other newer item?", a: "Because this is the 1.8 version of Minecraft, and those were added later. See the version section above for what is and is not in this version." },
   { q: "The game feels slow. What can I do?", a: "Lower Render Distance under Options, then Video Settings, and play in a desktop browser for the best speed." },
@@ -91,7 +91,7 @@ function page(username: string, isAdmin: boolean): string {
       <ul style="margin:0;padding-left:1.2rem">
         <li style="margin:.45rem 0"><b>Set your in-game name to <code>${esc(username)}</code>.</b> Your worlds, builds and permissions are all stored against your account name. The first time you play, open <b>Edit Profile</b> on the title screen and set your username to exactly <code>${esc(username)}</code> (it's case-sensitive). If it doesn't match, the server kicks you with a reminder — that's the system protecting your stuff, not a bug.</li>
         <li style="margin:.45rem 0"><b>Keep this panel open in a second tab.</b> The game runs in its own tab with no menus for hopping worlds, teleporting, or sharing. Those controls live <em>here</em> — on the <a href="/worlds">Worlds</a> tab (press <code>W</code>). So play in one tab, and switch to this tab whenever you want to jump to a world, go to a friend, or manage access. Both tabs share the same login.</li>
-        <li style="margin:.45rem 0"><b>Make your own world, and add friends.</b> You start in the shared <b>world</b>. To get your own private space, open the <a href="/worlds">Worlds</a> tab and <b>Create a world</b> — your builds there save automatically. Add people on the <a href="/friends">Friends</a> tab (press <code>F</code>): friends can see when each other are online and jump straight to one another.</li>
+        <li style="margin:.45rem 0"><b>Make your own world, and add friends.</b> You start in the <b>Shared World</b>. To get your own private space, open the <a href="/worlds">Worlds</a> tab and <b>Create a world</b> — your builds there save automatically. Add people on the <a href="/friends">Friends</a> tab (press <code>F</code>): friends can see when each other are online and jump straight to one another.</li>
       </ul>
       <p class="hint" style="margin:.8rem 0 0">New to Minecraft itself? The movement, commands and tips below cover the basics, and there are links to full references at the bottom.</p>
     </div>

@@ -152,7 +152,7 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
     <p class="sub">Having access to a world means you can build in it. Hit <b>Play</b> first (it connects you to the server), then use <b>Hop in</b> or <b>Join →</b> to teleport.</p>
 
     <div class="card">
-      <p style="margin:.1rem 0 .6rem"><b>What's a world?</b> A world is a Minecraft map. When you first hit <b>Play</b> you land in the shared <b>world</b> — a common area anyone can visit. It saves, but it belongs to everyone.</p>
+      <p style="margin:.1rem 0 .6rem"><b>What's a world?</b> A world is a Minecraft map. When you first hit <b>Play</b> you land in the <b>Shared World</b> — a common area anyone can visit. It saves, but it belongs to everyone.</p>
       <p style="margin:0"><b>Want your own space?</b> Create a world below. It's yours (you're its owner), your builds there save automatically, and everyone on the server can visit and build in it.</p>
     </div>
 
@@ -163,9 +163,9 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
         ? '<p class="hint">No one is online right now. Hit <b>Play</b> to jump on.</p>'
         : '<p class="hint">None of your friends are online right now. You only see friends and people you share a world with here — add friends in the <a href="/friends">Friends</a> tab.</p>'}
 
-    ${lobby ? `<h2>world</h2>
+    ${lobby ? `<h2>Shared World</h2>
     <div class="world"><div class="row" style="justify-content:space-between;margin:0">
-      <span><b>${esc(lobby.mv_world_name)}</b> <span class="hint">— the main shared world, anyone can build</span></span>
+      <span><b>Shared World</b> <code>${esc(lobby.mv_world_name)}</code> <span class="hint">— the main world everyone shares, anyone can build</span></span>
       ${cardLinks(lobby)}</div></div>` : ""}
 
     <h2>My worlds</h2>
@@ -182,11 +182,15 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
         : `<form id="create-form" method="post" action="/worlds/create" class="row" style="margin:0"><input name="name" placeholder="my world name" required/><input name="seed" placeholder="seed (optional)"/><button class="btn-primary">Create</button></form>
            <div class="progress-wrap" id="create-progress"><div class="progress-track"><div class="progress-fill" id="create-fill"></div></div><div class="progress-label" id="create-label"></div></div>
            <p class="hint" style="margin:.5rem 0 0">Leave the seed blank for a random world, or paste a seed (a number, or any word) to generate a specific one.${me.admin ? "" : ` You can create up to ${PER_USER_WORLD_CAP} worlds.`}</p>`}
+      <div style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid #232a35">
+        <div class="hint" style="margin-bottom:.4rem">Upload a world you built in singleplayer</div>
+        <form id="upload-form" method="post" action="/worlds/upload" enctype="multipart/form-data" class="row"><input type="file" name="world" accept=".zip" required/><input name="name" placeholder="world name"/><button class="btn-ghost">Upload .zip</button></form>
+        <div class="progress-wrap" id="upload-progress"><div class="progress-track"><div class="progress-fill" id="upload-fill"></div></div><div class="progress-label" id="upload-label"></div></div>
+        <p class="hint" style="margin:.5rem 0 0">In singleplayer: open the world's Backup/Edit menu, choose <b>Convert to Vanilla</b>, then upload the .zip here. Give it a new name.</p>
+      </div>
       ${me.admin ? `
       <div style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid #232a35">
         <div class="hint" style="margin-bottom:.4rem">Admin tools</div>
-        ${me.owner ? `<form id="upload-form" method="post" action="/worlds/upload" enctype="multipart/form-data" class="row"><input type="file" name="world" accept=".zip" required/><input name="name" placeholder="world name"/><button class="btn-ghost">Upload .zip</button></form>
-        <div class="progress-wrap" id="upload-progress"><div class="progress-track"><div class="progress-fill" id="upload-fill"></div></div><div class="progress-label" id="upload-label"></div></div>` : ""}
         <form method="post" action="/worlds/register" class="row"><input name="mv" placeholder="existing world folder (e.g. cliffbuild)" required/><input name="name" placeholder="display name"/><button class="btn-ghost">Register existing</button></form>
         <p class="hint" style="margin:.6rem 0 0">Upload a vanilla world .zip (overworld), or manage users &amp; invites in the <a href="/admin">Admin</a> tab.</p>
       </div>` : ""}
@@ -383,9 +387,21 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
 
   const card = (title: string, inner: string, note?: string) => `
     <div class="card">
-      <div style="font-weight:600;margin-bottom:.5rem">${title}</div>
+      <div class="cc-t">${title}</div>
       <form method="post" action="/worlds/${w.id}/run" class="row" style="align-items:flex-end;margin:0">${inner}<button class="btn-primary">Run</button></form>
       ${note ? `<p class="hint" style="margin:.45rem 0 0">${note}</p>` : ""}
+    </div>`;
+
+  // Dashboard card of one-click buttons (one form per button group; the clicked
+  // button's name/value is submitted alongside the hidden cmd).
+  const cc = (title: string, cmd: string, field: string, opts: string[], current?: string, note?: string) => `
+    <div class="card">
+      <div class="cc-t">${title}</div>
+      <form method="post" action="/worlds/${w.id}/run" style="margin:0">
+        <input type="hidden" name="cmd" value="${cmd}"/>
+        <div class="cc-btns">${opts.map((o) => `<button name="${field}" value="${o}" class="${o === current ? "btn-primary" : "btn-ghost"}">${o}</button>`).join("")}</div>
+      </form>
+      ${note ? `<p class="hint" style="margin:0">${note}</p>` : ""}
     </div>`;
 
   // hidden world+x+y+z+label fields for a "go to this exact spot" tp_loc form
@@ -438,45 +454,81 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
     </div>`;
 
   const body = `
+    <style>
+      .cc-head{display:flex;align-items:center;justify-content:space-between;gap:.8rem;flex-wrap:wrap;margin:.2rem 0 .4rem}
+      .cc-head h1{margin:0}
+      .cc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:.8rem;margin:.8rem 0}
+      .cc-grid .card{margin:0;display:flex;flex-direction:column;gap:.55rem}
+      .cc-wide{grid-column:1/-1}
+      .cc-t{font-weight:600;display:flex;align-items:center;gap:.45rem}
+      .cc-t .hint{font-weight:400}
+      .cc-btns{display:flex;gap:.4rem;flex-wrap:wrap}
+      .cc-btns button{flex:1;min-width:72px}
+      .cc-sec{margin:1.2rem 0 0;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:#8a94a3}
+      #cc-toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);max-width:92vw;padding:.6rem .9rem;border-radius:10px;font-size:.9rem;z-index:50;display:none;box-shadow:0 6px 24px #0008}
+      #cc-toast.ok{background:#234e36;color:#d6f5e1;display:block}
+      #cc-toast.err{background:#5a2230;color:#ffd0da;display:block}
+      #cc-toast.busy{background:#222a35;color:#cdd6e2;display:block}
+      .cc-busy{opacity:.55;pointer-events:none}
+    </style>
     <p class="sub"><a href="/worlds">← Worlds</a></p>
-    <h1>${icon("terminal")} Command Center — ${esc(w.name)} <code>${esc(w.mv_world_name)}</code></h1>
-    <p class="sub">Run commands in this world. ${status}</p>
+    <div class="cc-head"><h1>${icon("terminal")} ${esc(w.name)} <code>${esc(w.mv_world_name)}</code></h1>${status}</div>
 
-    ${card("Teleport to coordinates", `<input type="hidden" name="cmd" value="tp_coords"/>
-      <span>X<br><input name="x" type="number" required style="width:90px"></span>
-      <span>Y<br><input name="y" type="number" required style="width:90px"></span>
-      <span>Z<br><input name="z" type="number" required style="width:90px"></span>`,
-      "Teleports you to these coordinates in this world.")}
+    <div class="cc-sec">World controls</div>
+    <div class="cc-grid">
+      ${cc("Game mode (you)", "gamemode", "mode", ["creative", "survival", "adventure", "spectator"])}
+      ${cc("Time", "time", "val", ["day", "noon", "night", "midnight"])}
+      ${cc("Weather", "weather", "val", ["clear", "rain", "thunder"])}
+      ${cc("Difficulty", "difficulty", "val", ["peaceful", "easy", "normal", "hard"], curDiff, `Now <b>${esc(curDiff || "unknown")}</b>, saved for this world.`)}
+    </div>
 
-    ${card("Teleport to a player", `<input type="hidden" name="cmd" value="tp_player"/>
-      <select name="target" style="flex:1;min-width:240px">${playerOpts || '<option disabled>no members</option>'}</select>`,
-      "Jumps you to them — live if they're online, otherwise their last-known spot.")}
+    <div class="cc-sec">Travel</div>
+    <div class="cc-grid">
+      ${card("Teleport to coordinates", `<input type="hidden" name="cmd" value="tp_coords"/>
+        <span>X<br><input name="x" type="number" required style="width:84px"></span>
+        <span>Y<br><input name="y" type="number" required style="width:84px"></span>
+        <span>Z<br><input name="z" type="number" required style="width:84px"></span>`,
+        "Teleports you to these coordinates in this world.")}
+      ${card("Teleport to a player", `<input type="hidden" name="cmd" value="tp_player"/>
+        <select name="target" style="flex:1;min-width:200px">${playerOpts || '<option disabled>no members</option>'}</select>`,
+        "Live if they're online, otherwise their last-known spot.")}
+      ${card("Give item (to you)", `<input type="hidden" name="cmd" value="give"/>
+        <input name="item" placeholder="e.g. diamond_pickaxe" required style="flex:1;min-width:150px">
+        <span>×<input name="count" type="number" value="1" min="1" max="64" style="width:64px"></span>`,
+        "1.12.2 ids like <code>diamond</code>, <code>oak_log</code>.")}
+      ${meCtx.owner ? card("Raw command (owner)", `<input type="hidden" name="cmd" value="raw"/>
+        <input name="raw" placeholder="no slash, e.g. difficulty peaceful" required style="flex:1;min-width:200px">`,
+        icon("alert") + " Runs verbatim on the server console.") : ""}
+    </div>
 
-    ${recentBlock}
-
-    ${savedBlock}
-
-    ${card("Game mode (you)", `<input type="hidden" name="cmd" value="gamemode"/>
-      <select name="mode"><option value="creative">creative</option><option value="survival">survival</option><option value="adventure">adventure</option><option value="spectator">spectator</option></select>`)}
-
-    ${card("Difficulty (this world)", `<input type="hidden" name="cmd" value="difficulty"/>
-      <select name="val">${["peaceful", "easy", "normal", "hard"].map((d) => `<option${d === curDiff ? " selected" : ""}>${d}</option>`).join("")}</select>`,
-      `Currently <b>${esc(curDiff || "unknown")}</b>. Persists for this world (applies even when nobody's in it).`)}
-
-    ${card("Set time", `<input type="hidden" name="cmd" value="time"/>
-      <select name="val"><option>day</option><option>noon</option><option>night</option><option>midnight</option></select>`)}
-
-    ${card("Set weather", `<input type="hidden" name="cmd" value="weather"/>
-      <select name="val"><option>clear</option><option>rain</option><option>thunder</option></select>`)}
-
-    ${card("Give item (to you)", `<input type="hidden" name="cmd" value="give"/>
-      <input name="item" placeholder="item id, e.g. diamond_pickaxe" required style="flex:1;min-width:200px">
-      <span>×<input name="count" type="number" value="1" min="1" max="64" style="width:72px"></span>`,
-      "Names like <code>diamond</code>, <code>oak_log</code>, <code>diamond_sword</code> (1.12.2 ids).")}
-
-    ${meCtx.owner ? card("Raw command (owner)", `<input type="hidden" name="cmd" value="raw"/>
-      <input name="raw" placeholder="command without the slash, e.g. difficulty peaceful" required style="flex:1;min-width:260px">`,
-      icon("alert") + " Runs verbatim on the server console — full power, owner-only.") : ""}
+    <div class="cc-sec">Places</div>
+    <div class="cc-grid">
+      <div class="cc-wide">${savedBlock}</div>
+      <div class="cc-wide">${recentBlock}</div>
+    </div>
+    <div id="cc-toast" role="status"></div>
+    <script>
+    (function(){
+      var toast=document.getElementById('cc-toast'),tm;
+      function show(cls,txt,ms){clearTimeout(tm);toast.className=cls;toast.textContent=txt;if(ms)tm=setTimeout(function(){toast.className='';},ms);}
+      document.addEventListener('submit',function(e){
+        var f=e.target;
+        if(!f.action||!/\\/worlds\\/[^/]+\\/run$/.test(f.action))return;
+        if(!window.fetch||!window.FormData)return;
+        e.preventDefault();
+        var body;
+        try{body=new URLSearchParams(new FormData(f,e.submitter));}catch(_){body=new URLSearchParams(new FormData(f));}
+        var cmd=body.get('cmd')||'';
+        f.classList.add('cc-busy');show('busy','Running…');
+        fetch(f.action,{method:'POST',body:body,credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}})
+          .then(function(r){var u=new URL(r.url);var err=u.searchParams.get('err'),msg=u.searchParams.get('msg');
+            f.classList.remove('cc-busy');
+            if(err)show('err',err,6000);else show('ok',msg||'Done.',3500);
+            if(!err&&/^tp_/.test(cmd))setTimeout(function(){location.reload();},900);})
+          .catch(function(){f.classList.remove('cc-busy');show('err','Request failed — try again.',6000);});
+      });
+    })();
+    </script>
   `;
   return shell({ title: "Command Center", active: "worlds", username: meCtx.username, admin: meCtx.admin, body, msg, err });
 }
@@ -898,9 +950,7 @@ export function mountWorlds(app: Hono): void {
 
     const m = await me(c);
     if (!m) { await drain(); return c.redirect("/login"); }
-    // Owner-only: upload is the one path that writes files directly to the
-    // game-data mount, so we keep its blast radius to the owner account.
-    if (!m.owner) return bail("?err=" + encodeURIComponent("Only the owner can upload worlds."));
+    // Any logged-in player may upload (private friends-only server).
     const GAMEDATA = process.env.GAMEDATA_DIR || "/gamedata";
     const MAX_UPLOAD = 400 * 1024 * 1024;
     // Raw-body upload, not multipart/form-data: Bun's FormData/multipart parser

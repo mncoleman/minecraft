@@ -118,16 +118,14 @@ function callerFromBearer(c: Context): Caller | null {
   return { user, owner: !!user.email && user.email.toLowerCase() === OWNER_EMAIL };
 }
 
-/** Build rights: the open lobby, or a registered world you own or are shared on. */
-function canBuild(u: User, mv: string): boolean {
+/** Build rights: private friends-only server, so every active registered world (and the lobby) is buildable by every caller. */
+function canBuild(_u: User, mv: string): boolean {
   if (isLobby(mv)) return true;
   const w = getWorldByMv(mv);
-  if (!w || w.status !== "active") return false;
-  if (w.owner_user_id === u.id) return true;
-  return !!db.query("SELECT 1 FROM world_shares WHERE world_id = ? AND grantee_user_id = ?").get(w.id, u.id);
+  return !!w && w.status === "active";
 }
-function buildableWorlds(u: User): string[] {
-  return [LOBBY_MV, ...listWorldsOwnedBy(u.id).map((w) => w.mv_world_name), ...listWorldsSharedWith(u.id).map((w) => w.mv_world_name)];
+function buildableWorlds(_u: User): string[] {
+  return [LOBBY_MV, ...listAllWorlds().filter((w) => w.status === "active" && !isLobby(w.mv_world_name)).map((w) => w.mv_world_name)];
 }
 function knownWorld(mv: string): boolean { return isLobby(mv) || !!getWorldByMv(mv); }
 
@@ -753,16 +751,29 @@ export function mountMcp(app: Hono): void {
     const body = `
       <h1>Claude</h1>
       <p class="sub">Build with Claude: ask for things like <i>"an underground cart line from the village to the castle"</i> and Claude plans the route, shows you a preview, builds it, checks it, and can undo it. It reads the terrain, places blocks in batches and chats in game as Claude. Admin-only for now, and it only builds where <b>you</b> have build rights.</p>
-      <div class="card"><p style="margin:0 0 .4rem"><b>Set up (once per computer)</b></p>
+      <div class="card"><p style="margin:0 0 .4rem;font-size:1.15rem"><b>Connect with claude.ai</b> <span class="hint">(recommended)</span></p>
+        <p style="margin:0 0 .5rem">Copy this URL:</p>
+        <div class="codeblock" style="font-size:1.1rem"><code>${esc(url)}</code></div>
+        <ol style="margin:.6rem 0 0;padding-left:1.2rem;line-height:1.7">
+          <li>In claude.ai, open <b>Settings → Connectors</b> and choose <b>Add custom connector</b>.</li>
+          <li>Paste the URL above. You'll sign in here and approve it; no token needed.</li>
+          <li>Start a chat and ask Claude to build something. Hit <b>Play</b> first if you want to watch.</li>
+        </ol></div>
+      <h2>Connected apps</h2>
+      ${conns.length ? conns.map((r) => `<div class="world"><div class="row" style="justify-content:space-between;margin:0">
+        <span><b>${esc(r.name)}</b> <span class="hint">connected via claude.ai · last used ${when(r.last_used_at)} · until ${when(r.expires_at)} unless used</span></span>
+        <form method="post" action="/admin/claude/oauth/${esc(r.token_hash)}/revoke" style="margin:0"><button class="btn-danger">Disconnect</button></form>
+      </div></div>`).join("") : '<p class="hint">No apps connected.</p>'}
+      <details style="margin-top:1.5rem"${fresh || rows.length ? " open" : ""}><summary class="hint" style="cursor:pointer">Other ways to connect: Claude Code (token), live chat feed</summary>
+      <div class="card"><p style="margin:0 0 .4rem"><b>Claude Code setup (once per computer)</b></p>
         <ol style="margin:0;padding-left:1.2rem;line-height:1.7">
           <li>Create a token below and copy the setup command it shows.</li>
           <li>Run that command in a terminal (or paste it into Claude Code in the desktop app).</li>
-          <li>Start a new Claude Code session and ask it to build something. Hit <b>Play</b> first if you want to watch.</li>
+          <li>Start a new Claude Code session and ask it to build something.</li>
         </ol>
         <p class="hint" style="margin:.6rem 0 .3rem">Claude can read game chat (<code>read_chat</code>) and follow it live. To watch it yourself in a terminal (after setup):</p>
         <div class="codeblock"><code>${esc(LIVE_CMD)}</code></div>
-        <p class="hint" style="margin:.5rem 0 0">Turn the in-game Claude avatar off with <code>/claude avatar off</code>.</p>
-        <p class="hint" style="margin:.5rem 0 0"><b>claude.ai:</b> add a custom connector in claude.ai Settings → Connectors with the URL <code>${esc(url)}</code>. You'll sign in here and approve it; no token needed. Connected apps are listed below.</p></div>
+        <p class="hint" style="margin:.5rem 0 0">Turn the in-game Claude avatar off with <code>/claude avatar off</code>.</p></div>
       ${fresh ? `<div class="card"><p style="margin:0 0 .5rem"><b>Your new token — copy it now, it won't be shown again:</b></p>
         <div class="codeblock"><code>${esc(fresh)}</code></div>
         <p class="hint" style="margin:0 0 .3rem">Add it to Claude Code (terminal or the desktop app's Code tab):</p>
@@ -771,7 +782,7 @@ export function mountMcp(app: Hono): void {
       <div class="card">
         <form method="post" action="/admin/claude/token" class="row" style="margin:0">
           <input name="label" placeholder="label, e.g. macbook" maxlength="40" required/>
-          <button class="btn-primary">Create token</button>
+          <button>Create token</button>
         </form>
       </div>
       <h2>Your tokens</h2>
@@ -779,11 +790,7 @@ export function mountMcp(app: Hono): void {
         <span><b>${esc(r.label)}</b> <span class="hint">created ${when(r.created_at)} · last used ${when(r.last_used_at)}</span></span>
         <form method="post" action="/admin/claude/token/${r.id}/revoke" style="margin:0"><button class="btn-danger">Revoke</button></form>
       </div></div>`).join("") : '<p class="hint">No tokens yet.</p>'}
-      <h2>Connected apps</h2>
-      ${conns.length ? conns.map((r) => `<div class="world"><div class="row" style="justify-content:space-between;margin:0">
-        <span><b>${esc(r.name)}</b> <span class="hint">connected via claude.ai · last used ${when(r.last_used_at)} · until ${when(r.expires_at)} unless used</span></span>
-        <form method="post" action="/admin/claude/oauth/${esc(r.token_hash)}/revoke" style="margin:0"><button class="btn-danger">Disconnect</button></form>
-      </div></div>`).join("") : '<p class="hint">No apps connected.</p>'}`;
+      </details>`;
     return shell({ title: "Claude", active: "claude", username: s.username, admin: true, body, msg });
   };
   const adminSession = async (c: Context) => {
