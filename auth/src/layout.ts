@@ -283,8 +283,8 @@ export function shell(o: ShellOpts): string {
     ? ' <span class="dot on pulse" title="You have new friend requests" style="margin:0 0 0 .35rem"></span>'
     : "");
   // Single-key nav shortcuts (ignored while typing). 'a' only for admins.
-  const navKeys: Record<string, string> = { w: "/worlds", f: "/friends", g: "/help", b: "/feedback", p: "/profile", y: "/" };
-  if (o.admin) { navKeys.a = "/admin"; navKeys.c = "/claude"; }
+  const navKeys: Record<string, string> = { w: "/worlds", f: "/friends", c: "/claude", g: "/help", b: "/feedback", p: "/profile", y: "/" };
+  if (o.admin) navKeys.a = "/admin";
   return `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"/><link rel="apple-touch-icon" href="/email-logo.png"/>
@@ -295,7 +295,7 @@ export function shell(o: ShellOpts): string {
     ${tab("play", "/", "Play", "Y")}
     ${tab("worlds", "/worlds", "Worlds", "W")}
     ${tab("friends", "/friends", friendsLabel, "F")}
-    ${o.admin ? tab("claude", "/claude", "Claude", "C") : ""}
+    ${tab("claude", "/claude", "Claude", "C")}
     ${o.admin ? tab("admin", "/admin", "Admin", "A") : ""}
     ${tab("guide", "/help", "Guide", "G")}
     ${tab("feedback", "/feedback", "Feedback", "B")}

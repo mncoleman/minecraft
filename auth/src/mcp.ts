@@ -1,6 +1,7 @@
 // Claude ⇄ Minecraft: a remote MCP endpoint (Streamable HTTP, stateless JSON
-// responses) at POST /mcp. Phase 1: admins only, authenticated with a personal
-// bearer token minted at /admin/claude (stored as SHA-256; shown once). The
+// responses) at POST /mcp. Open to every signed-in player, authenticated with a
+// personal bearer token minted at /claude (stored as SHA-256; shown once) or a
+// claude.ai OAuth connector. Owner-only tools (run_command) stay gated. The
 // heavy lifting — scans, batched placement, undo journals, the avatar — lives in
 // the ClaudeBuild plugin inside the game container; this layer decides WHO may do
 // WHAT, WHERE (build rights = owner, shared member, or the open lobby).
@@ -14,7 +15,7 @@ import { setCookie } from "hono/cookie";
 import { signSession } from "./jwt.ts";
 import { getPresence, serverOfPlayer } from "./presence.ts";
 import { SERVERS, enabledServers, isEnabled, parseServer, serverLabel, type ServerId } from "./servers.ts";
-import { listFriends, incomingRequests, outgoingRequests } from "./friends.ts";
+import { listFriends, incomingRequests, outgoingRequests, visibleOnlineUsernames } from "./friends.ts";
 import { shell } from "./layout.ts";
 import { rcon, stripColor } from "./rcon.ts";
 import {
@@ -116,7 +117,7 @@ function callerFromBearer(c: Context): Caller | null {
   if (!row) return null;
   if (row.expires_at !== null && row.expires_at <= now()) return null;
   const user = db.query("SELECT * FROM users WHERE id = ?").get(row.user_id) as User | null;
-  if (!user || !user.is_admin) return null; // phase 1: admins only, re-checked every call
+  if (!user) return null; // any existing player; a deleted account's tokens die with it (re-checked every call)
   db.run("UPDATE mcp_tokens SET last_used_at = ? WHERE id = ?", [now(), row.id]);
   return { user, owner: !!user.email && user.email.toLowerCase() === OWNER_EMAIL };
 }
@@ -131,6 +132,13 @@ function buildableWorlds(_u: User, srv: ServerId): string[] {
   return [LOBBY_MV, ...listAllWorlds().filter((w) => w.status === "active" && w.server === srv && !isLobby(w.mv_world_name)).map((w) => w.mv_world_name)];
 }
 function knownWorld(mv: string, srv: ServerId): boolean { return isLobby(mv) || !!getWorldByMv(mv, srv); }
+/** May this caller see/act on another player's whereabouts? Mirrors the panel's
+ *  "who's online" rule: admins see everyone, players see themselves, friends and
+ *  world co-members. */
+function canSeePlayer(u: User, name: string): boolean {
+  if (u.is_admin || name.toLowerCase() === u.username.toLowerCase()) return true;
+  return visibleOnlineUsernames(u.id).has(name.toLowerCase());
+}
 
 /**
  * Which server a tool call targets. Explicit `server` ("26" / "1.8") wins. Else,
@@ -447,6 +455,7 @@ async function callTool(caller: Caller, name: string, a: any): Promise<ToolResul
     switch (name) {
       case "get_status": {
         const target = a?.player ? String(a.player) : u.username;
+        if (!canSeePlayer(u, target)) return fail(`You can only look up yourself, your friends, and people you share a world with.`);
         const where = await serverOfPlayer(target);
         const srv: ServerId = a?.server ? await resolveServer(u, a) : (where?.server ?? await resolveServer(u, a));
         const st = await plugin("/player", { name: target }, 30000, srv);
@@ -603,6 +612,7 @@ async function callTool(caller: Caller, name: string, a: any): Promise<ToolResul
       }
       case "hop": {
         if (a?.to_player) {
+          if (!canSeePlayer(u, String(a.to_player))) return fail(`You can only join your friends and people you share a world with.`);
           const p = (await getPresence()).find((x) => x.name.toLowerCase() === String(a.to_player).toLowerCase());
           if (!p) return fail(`${a.to_player} isn't online.`);
           const r = await asPlayer(u, "/worlds/hop-to", { mv: p.world, server: p.server });
@@ -688,6 +698,7 @@ async function callTool(caller: Caller, name: string, a: any): Promise<ToolResul
       case "avatar": {
         const action = String(a?.action ?? "status");
         const player = String(a?.player || u.username);
+        if (!canSeePlayer(u, player)) return fail(`The avatar can only follow you, your friends, or people you share a world with.`);
         let world = a?.world ? worldArg(a) : undefined;
         // The avatar lives on whichever server the player (or the given world) is on.
         const where = await serverOfPlayer(player);
@@ -794,7 +805,7 @@ export function mountMcp(app: Hono): void {
   app.get("/mcp", (c) => c.body(null, 405));
 
   // Live chat feed for shells/monitors: newline-delimited JSON, one message per
-  // line, ':' keepalives. Same bearer token as /mcp (admins only).
+  // line, ':' keepalives. Same bearer token as /mcp (any player).
   let liveFeeds = 0;
   app.get("/chat/stream", async (c) => {
     const caller = callerFromBearer(c);
@@ -818,9 +829,9 @@ export function mountMcp(app: Hono): void {
           cursor = first.cursor;
           send(`: connected — following chat from message ${cursor}\n`);
           while (!closed) {
-            const u = db.query("SELECT is_admin FROM users WHERE id = ?").get(userId) as { is_admin: number } | null;
+            const u = db.query("SELECT 1 FROM users WHERE id = ?").get(userId);
             const live = db.query("SELECT 1 FROM mcp_tokens WHERE token_hash = ? AND user_id = ? AND (expires_at IS NULL OR expires_at > ?)").get(tokHash, userId, now());
-            if (!u?.is_admin || !live) { send(": access revoked\n"); break; }
+            if (!u || !live) { send(": access revoked\n"); break; }
             if (Date.now() - startedAt > 3_600_000) { send(": feed closed after 1 hour — start it again\n"); break; }
             let r: any;
             try { r = await plugin("/chat", { since: cursor, limit: 100, wait_ms: 20000 }, 30000, srv); }
@@ -844,8 +855,8 @@ export function mountMcp(app: Hono): void {
   });
   app.delete("/mcp", (c) => c.body(null, 405));
 
-  // ── token management (admins) ──────────────────────────────────────────────
-  const page = (s: { sub: string; username: string }, fresh?: string, msg?: string) => {
+  // ── token management (every player) ──────────────────────────────────────────
+  const page = (s: { sub: string; username: string; admin?: boolean }, fresh?: string, msg?: string) => {
     const rows = db.query("SELECT id, label, created_at, last_used_at FROM mcp_tokens WHERE user_id = ? AND expires_at IS NULL ORDER BY created_at DESC").all(s.sub) as
       Array<{ id: string; label: string; created_at: number; last_used_at: number | null }>;
     // claude.ai (OAuth) connections: one live refresh token each.
@@ -858,7 +869,7 @@ export function mountMcp(app: Hono): void {
     const url = `${config.publicBaseUrl || "https://minecraft.mncoleman.com"}/mcp`;
     const body = `
       <h1>Claude</h1>
-      <p class="sub">Build with Claude: ask for things like <i>"an underground cart line from the village to the castle"</i> and Claude plans the route, shows you a preview, builds it, checks it, and can undo it. It reads the terrain, places blocks in batches and chats in game as Claude. Admin-only for now, and it only builds where <b>you</b> have build rights.</p>
+      <p class="sub">Build with Claude: ask for things like <i>"an underground cart line from the village to the castle"</i> and Claude plans the route, shows you a preview, builds it, checks it, and can undo it. It reads the terrain, places blocks in batches and chats in game as Claude. It acts as <b>you</b>: same worlds, same rights.</p>
       <div class="card"><p style="margin:0 0 .4rem;font-size:1.15rem"><b>Connect with claude.ai</b> <span class="hint">(recommended)</span></p>
         <p style="margin:0 0 .5rem">Copy this URL:</p>
         <div class="codeblock" style="font-size:1.1rem"><code>${esc(url)}</code></div>
@@ -870,7 +881,7 @@ export function mountMcp(app: Hono): void {
       <h2>Connected apps</h2>
       ${conns.length ? conns.map((r) => `<div class="world"><div class="row" style="justify-content:space-between;margin:0">
         <span><b>${esc(r.name)}</b> <span class="hint">connected via claude.ai · last used ${when(r.last_used_at)} · until ${when(r.expires_at)} unless used</span></span>
-        <form method="post" action="/admin/claude/oauth/${esc(r.token_hash)}/revoke" style="margin:0"><button class="btn-danger">Disconnect</button></form>
+        <form method="post" action="/claude/oauth/${esc(r.token_hash)}/revoke" style="margin:0"><button class="btn-danger">Disconnect</button></form>
       </div></div>`).join("") : '<p class="hint">No apps connected.</p>'}
       <details style="margin-top:1.5rem"${fresh || rows.length ? " open" : ""}><summary class="hint" style="cursor:pointer">Other ways to connect: Claude Code (token), live chat feed</summary>
       <div class="card"><p style="margin:0 0 .4rem"><b>Claude Code setup (once per computer)</b></p>
@@ -888,7 +899,7 @@ export function mountMcp(app: Hono): void {
         <div class="codeblock"><code>claude mcp add --scope user --transport http minecraft ${esc(url)} --header "Authorization: Bearer ${esc(fresh)}"</code></div>
         </div>` : ""}
       <div class="card">
-        <form method="post" action="/admin/claude/token" class="row" style="margin:0">
+        <form method="post" action="/claude/token" class="row" style="margin:0">
           <input name="label" placeholder="label, e.g. macbook" maxlength="40" required/>
           <button>Create token</button>
         </form>
@@ -896,27 +907,27 @@ export function mountMcp(app: Hono): void {
       <h2>Your tokens</h2>
       ${rows.length ? rows.map((r) => `<div class="world"><div class="row" style="justify-content:space-between;margin:0">
         <span><b>${esc(r.label)}</b> <span class="hint">created ${when(r.created_at)} · last used ${when(r.last_used_at)}</span></span>
-        <form method="post" action="/admin/claude/token/${r.id}/revoke" style="margin:0"><button class="btn-danger">Revoke</button></form>
+        <form method="post" action="/claude/token/${r.id}/revoke" style="margin:0"><button class="btn-danger">Revoke</button></form>
       </div></div>`).join("") : '<p class="hint">No tokens yet.</p>'}
       </details>`;
-    return shell({ title: "Claude", active: "claude", username: s.username, admin: true, body, msg });
+    return shell({ title: "Claude", active: "claude", username: s.username, admin: !!s.admin, body, msg });
   };
-  const adminSession = async (c: Context) => {
+  const playerSession = async (c: Context) => {
     if (c.req.method === "POST") {
       const site = c.req.header("Sec-Fetch-Site");
       const origin = c.req.header("Origin");
       if ((site && site !== "same-origin" && site !== "none") || (origin && origin !== config.publicBaseUrl)) return null;
     }
-    const s = await currentSession(c); return s?.admin ? s : null;
+    return await currentSession(c);
   };
 
   app.get("/admin/claude", (c) => c.redirect("/claude"));
   app.get("/claude", async (c) => {
-    const s = await adminSession(c); if (!s) return c.redirect("/worlds?err=" + encodeURIComponent("Admins only."));
+    const s = await playerSession(c); if (!s) return c.redirect("/login");
     return c.html(page(s, undefined, c.req.query("msg")));
   });
-  app.post("/admin/claude/token", async (c) => {
-    const s = await adminSession(c); if (!s) return c.redirect("/worlds?err=" + encodeURIComponent("Admins only."));
+  app.post("/claude/token", async (c) => {
+    const s = await playerSession(c); if (!s) return c.redirect("/login");
     const form = await c.req.parseBody();
     const label = String(form.label ?? "").trim().slice(0, 40) || "token";
     const n = (db.query("SELECT COUNT(*) AS n FROM mcp_tokens WHERE user_id = ? AND expires_at IS NULL").get(s.sub) as { n: number }).n;
@@ -926,8 +937,8 @@ export function mountMcp(app: Hono): void {
     c.header("Cache-Control", "no-store");
     return c.html(page(s, raw));
   });
-  app.post("/admin/claude/token/:id/revoke", async (c) => {
-    const s = await adminSession(c); if (!s) return c.redirect("/worlds?err=" + encodeURIComponent("Admins only."));
+  app.post("/claude/token/:id/revoke", async (c) => {
+    const s = await playerSession(c); if (!s) return c.redirect("/login");
     // An OAuth access token also takes its refresh token with it, so the
     // connector can't silently mint a new one; it has to be re-authorized.
     db.run("DELETE FROM oauth_refresh WHERE access_id = ? AND user_id = ?", [c.req.param("id"), s.sub]);
@@ -935,13 +946,17 @@ export function mountMcp(app: Hono): void {
     return c.redirect("/claude?msg=" + encodeURIComponent("Token revoked."));
   });
 
-  app.post("/admin/claude/oauth/:hash/revoke", async (c) => {
-    const s = await adminSession(c); if (!s) return c.redirect("/worlds?err=" + encodeURIComponent("Admins only."));
+  app.post("/claude/oauth/:hash/revoke", async (c) => {
+    const s = await playerSession(c); if (!s) return c.redirect("/login");
     const row = db.query("SELECT access_id FROM oauth_refresh WHERE token_hash = ? AND user_id = ?").get(c.req.param("hash"), s.sub) as { access_id: string | null } | null;
     if (row?.access_id) db.run("DELETE FROM mcp_tokens WHERE id = ? AND user_id = ?", [row.access_id, s.sub]);
     db.run("DELETE FROM oauth_refresh WHERE token_hash = ? AND user_id = ?", [c.req.param("hash"), s.sub]);
     return c.redirect("/claude?msg=" + encodeURIComponent("App disconnected."));
   });
+  // Old /admin/claude/* form targets (open tabs, bookmarks) keep working.
+  for (const p of ["/token", "/token/:id/revoke", "/oauth/:hash/revoke"]) {
+    app.post("/admin/claude" + p, (c) => c.redirect("/claude" + c.req.path.slice("/admin/claude".length), 307));
+  }
 
   mountOAuth(app);
 }
@@ -951,8 +966,8 @@ export function mountMcp(app: Hono): void {
 // tokens issued here. Flow (MCP authorization spec): discovery via the two
 // /.well-known documents, dynamic client registration, authorization code +
 // PKCE (S256 only) through the panel's normal login and a consent page, then
-// short-lived access tokens with rotating refresh tokens. Admins only, the same
-// rule as personal tokens; callerFromBearer re-checks admin on every call.
+// short-lived access tokens with rotating refresh tokens. Any player, the same
+// rule as personal tokens; callerFromBearer re-checks the account on every call.
 db.run(`CREATE TABLE IF NOT EXISTS oauth_clients (
   client_id     TEXT PRIMARY KEY,
   name          TEXT NOT NULL,
@@ -988,7 +1003,7 @@ function getClient(id: string): OAuthClient | null {
 }
 // Registration is open (claude.ai registers itself), so the redirect URI is the
 // only thing tying a client to a trusted app: allow claude.ai's own callback and
-// loopback (Claude Code / local tools). Anything else could phish an admin into
+// loopback (Claude Code / local tools). Anything else could phish a player into
 // handing a console-capable token to another site.
 const ALLOWED_CALLBACKS = new Set([
   "https://claude.ai/api/mcp/auth_callback",
@@ -1109,7 +1124,6 @@ function mountOAuth(app: Hono): void {
       setCookie(c, OAUTH_NEXT_COOKIE, c.req.url.replace(/^https?:\/\/[^/]+/, ""), { path: "/", httpOnly: true, secure: !config.devInsecureCookie, sameSite: "Lax", maxAge: 600 });
       return c.redirect("/login");
     }
-    if (!s.admin) return c.redirect(withParams(r.redirect_uri, { error: "access_denied", error_description: "Claude access is admin-only for now", state: r.state }));
     const hidden = (k: string, v?: string) => (v === undefined ? "" : `<input type="hidden" name="${k}" value="${esc(v)}"/>`);
     const q = c.req.query();
     const body = `
@@ -1127,7 +1141,7 @@ function mountOAuth(app: Hono): void {
     c.header("Cache-Control", "no-store");
     c.header("X-Frame-Options", "DENY");
     c.header("Content-Security-Policy", "frame-ancestors 'none'");
-    return c.html(shell({ title: "Connect " + r.client.name, active: "claude", username: s.username, admin: true, body }));
+    return c.html(shell({ title: "Connect " + r.client.name, active: "claude", username: s.username, admin: !!s.admin, body }));
   });
 
   app.post("/oauth/authorize", async (c) => {
@@ -1139,7 +1153,7 @@ function mountOAuth(app: Hono): void {
     if ("page" in r) return errPage(c, r.page);
     if ("redirect" in r) return c.redirect(r.redirect);
     const s = await currentSession(c);
-    if (!s?.admin) return c.redirect(withParams(r.redirect_uri, { error: "access_denied", state: r.state }));
+    if (!s) return c.redirect(withParams(r.redirect_uri, { error: "access_denied", state: r.state }));
     if (q.decision !== "allow") return c.redirect(withParams(r.redirect_uri, { error: "access_denied", state: r.state }));
     const code = randomBytes(32).toString("base64url");
     db.run("INSERT INTO oauth_codes (code_hash, client_id, user_id, redirect_uri, challenge, expires_at) VALUES (?,?,?,?,?,?)",
@@ -1160,7 +1174,8 @@ function mountOAuth(app: Hono): void {
     const bad = (error: string, desc?: string) => c.json({ error, ...(desc ? { error_description: desc } : {}) }, 400);
     const client = getClient(f.client_id || "");
     if (!client) return c.json({ error: "invalid_client" }, 401);
-    const isAdmin = (uid: string) => !!(db.query("SELECT is_admin FROM users WHERE id = ?").get(uid) as { is_admin: number } | null)?.is_admin;
+    // Any existing account may hold tokens; a deleted one can't mint or refresh.
+    const isPlayer = (uid: string) => !!db.query("SELECT 1 FROM users WHERE id = ?").get(uid);
 
     if (f.grant_type === "authorization_code") {
       const row = db.query("SELECT * FROM oauth_codes WHERE code_hash = ?").get(sha256(f.code || "")) as
@@ -1171,7 +1186,7 @@ function mountOAuth(app: Hono): void {
       const verifier = f.code_verifier || "";
       if (!/^[A-Za-z0-9._~-]{43,128}$/.test(verifier)) return bad("invalid_grant", "code_verifier required");
       if (createHash("sha256").update(verifier).digest("base64url") !== row.challenge) return bad("invalid_grant", "PKCE check failed");
-      if (!isAdmin(row.user_id)) return bad("invalid_grant", "admin-only");
+      if (!isPlayer(row.user_id)) return bad("invalid_grant", "account not found");
       return c.json(issueTokens(client, row.user_id));
     }
     if (f.grant_type === "refresh_token") {
@@ -1188,7 +1203,7 @@ function mountOAuth(app: Hono): void {
       }
       if (row.used_at === null) db.run("UPDATE oauth_refresh SET used_at = ? WHERE token_hash = ?", [now(), h]);
       if (row.access_id) db.run("DELETE FROM mcp_tokens WHERE id = ?", [row.access_id]);
-      if (!isAdmin(row.user_id)) { db.run("DELETE FROM oauth_refresh WHERE token_hash = ?", [h]); return bad("invalid_grant", "admin-only"); }
+      if (!isPlayer(row.user_id)) { db.run("DELETE FROM oauth_refresh WHERE token_hash = ?", [h]); return bad("invalid_grant", "account not found"); }
       return c.json(issueTokens(client, row.user_id));
     }
     return bad("unsupported_grant_type");
