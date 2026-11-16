@@ -409,7 +409,9 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
       ? `<span class="badge badge-ok">in this world${typeof meOn.x === "number" ? ` @ ${meOn.x}, ${meOn.y}, ${meOn.z}` : ""}</span>`
       : `<span class="badge" style="background:#5a4a22;color:#ffe0a3">online in ${esc(meOn.world)} — coord/time/weather need you inside ${esc(w.mv_world_name)}</span>`;
 
-  const playerOpts = worldMembers(w).map((mem) => {
+  // Privacy: non-admins only see (and can jump to) players they could see online.
+  const seeable = meCtx.admin ? null : visibleOnlineUsernames(meCtx.sub);
+  const playerOpts = worldMembers(w).filter((mem) => !seeable || seeable.has(mem.username.toLowerCase())).map((mem) => {
     const on = byName.get(mem.username.toLowerCase());
     const live = on && typeof on.x === "number" ? { world: on.world, x: on.x, y: on.y as number, z: on.z as number } : null;
     const loc = live || getLocation(mem.username, w.server);
@@ -877,6 +879,7 @@ export function mountWorlds(app: Hono): void {
         }
         case "tp_player": {
           const target = playerArg(form.target, w);
+          if (!m.admin && !visibleOnlineUsernames(m.sub).has(target.toLowerCase())) return back("err=" + encodeURIComponent("You can only jump to your friends and people you share a world with."));
           const tuid = userByUsername(target)?.id ?? null; // stable id → name resolves live later
           const tOn = online.find((p) => p.name.toLowerCase() === target.toLowerCase());
           if (tOn) {
