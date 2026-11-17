@@ -399,7 +399,7 @@ function notesPage(w: World, meCtx: { username: string; admin: boolean }, note: 
 }
 
 // ── Command Center page ──────────────────────────────────────────────────────
-function consolePage(w: World, meCtx: { sub: string; username: string; admin: boolean; owner: boolean }, onlineAll: OnlinePlayer[], curDiff: string, msg?: string, err?: string): string {
+function consolePage(w: World, meCtx: { sub: string; username: string; admin: boolean; owner: boolean }, onlineAll: OnlinePlayer[], curDiff: string, msg?: string, err?: string, global = false): string {
   // Only this world's server matters here (same names on the other server are a
   // different session).
   const online = onlineAll.filter((p) => p.server === w.server);
@@ -422,15 +422,20 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
 
   // Privacy: non-admins only see (and can jump to) players they could see online.
   const seeable = meCtx.admin ? null : visibleOnlineUsernames(meCtx.sub);
-  const playerOpts = worldMembers(w).filter((mem) => !seeable || seeable.has(mem.username.toLowerCase())).map((mem) => {
+  // One row per player (name, where they are, Go): wraps on a phone, unlike a
+  // native <select> whose long labels get clipped.
+  const playerRows = worldMembers(w).filter((mem) => !seeable || seeable.has(mem.username.toLowerCase())).map((mem) => {
     const on = byName.get(mem.username.toLowerCase());
     const live = on && typeof on.x === "number" ? { world: on.world, x: on.x, y: on.y as number, z: on.z as number } : null;
     const loc = live || getLocation(mem.username, w.server);
-    const label = on
-      ? (live ? `${mem.username} · online · ${live.world} (${live.x}, ${live.y}, ${live.z})` : `${mem.username} · online`)
-      : loc ? `${mem.username} · last seen · ${loc.world} (${loc.x}, ${loc.y}, ${loc.z})`
-      : `${mem.username} · never seen`;
-    return `<option value="${esc(mem.username)}"${!on && !loc ? " disabled" : ""}>${esc(label)}</option>`;
+    const where = on
+      ? (live ? `online · ${esc(live.world)} (${live.x}, ${live.y}, ${live.z})` : "online")
+      : loc ? `last seen · ${esc(loc.world)} (${loc.x}, ${loc.y}, ${loc.z})`
+      : "never seen";
+    return `<div class="row" style="justify-content:space-between;margin:0;padding:.35rem 0;border-top:1px solid var(--line);flex-wrap:nowrap">
+      <span style="min-width:0"><span class="dot${on ? " on" : ""}"></span><b>${esc(mem.username)}</b><div class="hint" style="font-size:.8rem">${where}</div></span>
+      <form method="post" action="/worlds/${w.id}/run" style="margin:0;flex:none"><input type="hidden" name="cmd" value="tp_player"/><input type="hidden" name="target" value="${esc(mem.username)}"/><button class="btn-primary"${!on && !loc ? " disabled" : ""}>Go</button></form>
+    </div>`;
   }).join("");
 
   const card = (title: string, inner: string, note?: string) => `
@@ -510,8 +515,8 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
       .cc-wide{grid-column:1/-1}
       .cc-t{font-weight:600;display:flex;align-items:center;gap:.45rem}
       .cc-t .hint{font-weight:400}
-      .cc-btns{display:flex;gap:.4rem;flex-wrap:wrap}
-      .cc-btns button{flex:1;min-width:72px}
+      .cc-btns{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:.4rem}
+      .cc-btns button{min-width:0;padding:.5rem .45rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .cc-sec{margin:1.6rem 0 0;font:700 .72rem var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:.5rem}
       .cc-sec::after{content:"";flex:1;height:1px;background:var(--line)}
       #cc-toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);max-width:92vw;padding:.6rem .9rem;border-radius:10px;font-size:.9rem;z-index:50;display:none;box-shadow:0 6px 24px #0008}
@@ -520,10 +525,15 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
       #cc-toast.busy{background:#222a35;color:#cdd6e2;display:block}
       .cc-busy{opacity:.55;pointer-events:none}
     </style>
-    ${pageHead({
+    ${pageHead(global ? {
+      eyebrow: "Command center · follows you",
+      title: `${icon("terminal")} Command Center`,
+      sub: `Commands go to the world you're in right now: <b>${esc(isLobby(w.mv_world_name) ? "Shared World" : w.name)}</b> ${edBadge(w.server)} on the ${serverLabel(w.server)} server. Move to another world and this page follows.`,
+      actions: `<a class="pill" href="/worlds/${w.id}/console">${icon("globe")} This world's page</a><a class="pill" href="/worlds/${w.id}/notes">${icon("note")} Notes</a>${status}`,
+    } : {
       eyebrow: `Command center · Minecraft ${serverLabel(w.server)}`,
       title: `${icon("terminal")} ${esc(isLobby(w.mv_world_name) ? "Shared World" : w.name)} <code>${esc(w.mv_world_name)}</code> ${edBadge(w.server)}`,
-      sub: `<a href="/worlds">← All worlds</a>`,
+      sub: `<a href="/worlds">← All worlds</a> · <a href="/command">Command Center for wherever you are →</a>`,
       actions: `<a class="pill" href="/worlds/${w.id}/notes">${icon("note")} Notes</a>${status}`,
     })}
     ${tiles([
@@ -548,9 +558,11 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
         <span>Y<br><input name="y" type="number" required style="width:84px"></span>
         <span>Z<br><input name="z" type="number" required style="width:84px"></span>`,
         "Teleports you to these coordinates in this world.")}
-      ${card("Teleport to a player", `<input type="hidden" name="cmd" value="tp_player"/>
-        <select name="target" style="flex:1;min-width:200px">${playerOpts || '<option disabled>no members</option>'}</select>`,
-        "Live if they're online, otherwise their last-known spot.")}
+      <div class="card">
+        <div class="cc-t">Teleport to a player</div>
+        <div>${playerRows || '<p class="hint" style="margin:0">No one here you can jump to yet (friends and people you share a world with show up).</p>'}</div>
+        <p class="hint" style="margin:.2rem 0 0">Live if they're online, otherwise their last-known spot.</p>
+      </div>
       ${card("Give item (to you)", `<input type="hidden" name="cmd" value="give"/>
         <input name="item" placeholder="e.g. diamond_pickaxe" required style="flex:1;min-width:150px">
         <span>×<input name="count" type="number" value="1" min="1" max="64" style="width:64px"></span>`,
@@ -589,7 +601,26 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
     })();
     </script>
   `;
-  return shell({ title: "Command Center", active: "worlds", username: meCtx.username, admin: meCtx.admin, body, msg, err });
+  // On the global page every form says so, and the handlers send you back here.
+  const out = global ? body.replace(/(<form method="post" action="\/worlds\/[^"]+\/(?:run|saveloc)[^"]*"[^>]*>)/g, '$1<input type="hidden" name="from" value="command">') : body;
+  return shell({ title: "Command Center", active: global ? "command" : "worlds", username: meCtx.username, admin: meCtx.admin, body: out, msg, err });
+}
+
+/** Where a Command Center form goes back to: the global page or the world's. */
+function ccBack(w: World, form: Record<string, unknown>): string {
+  return form.from === "command" ? "/command" : `/worlds/${w.id}/console`;
+}
+
+// ── Global Command Center: the world you're in right now ─────────────────────
+function commandIdlePage(me: { username: string; admin: boolean }, title: string, text: string, msg?: string, err?: string): string {
+  const body = `
+    ${pageHead({ eyebrow: "Command center · follows you", title: `${icon("terminal")} Command Center`, sub: "Runs commands in whichever world you're standing in, on whichever server you're on." })}
+    <div class="card" style="border-color:var(--c26-line)">
+      <h3>${title}</h3>
+      <p class="hint" style="margin:0 0 .8rem">${text}</p>
+      <div class="row" style="margin:0"><a class="pill" href="/">${icon("play")} Play</a><a class="pill" href="/worlds">${icon("globe")} Worlds</a><a class="pill" href="/command">Check again</a></div>
+    </div>`;
+  return shell({ title: "Command Center", active: "command", username: me.username, admin: me.admin, body, msg, err });
 }
 
 /**
@@ -857,14 +888,30 @@ export function mountWorlds(app: Hono): void {
     const curDiff = ((await readMvWorld(w.mv_world_name, w.server)).difficulty || "").toLowerCase(); // live
     return c.html(consolePage(w, m, await getPresence(), curDiff, c.req.query("msg"), c.req.query("err")));
   });
+  // Global Command Center: resolves your current server + world from presence
+  // (the same source get_status / resolveServer use) and shows that world's controls.
+  app.get("/command", async (c) => {
+    const m = await me(c); if (!m) return c.redirect("/login");
+    const msg = c.req.query("msg"), err = c.req.query("err");
+    const all = await getPresence();
+    const here = all.find((p) => p.name.toLowerCase() === m.username.toLowerCase());
+    if (!here) return c.html(commandIdlePage(m, "You're not in the game right now", "Hit <b>Play</b> (1.8 or 26) and join, then come back. This page picks up the world you're in automatically.", msg, err));
+    const w = getWorldByMv(here.world, here.server);
+    if (!w || w.status !== "active") return c.html(commandIdlePage(m, `You're in <code>${esc(here.world)}</code> on ${serverLabel(here.server)}`, "That place isn't one of the panel's worlds (for example the Nether or the End), so there are no controls for it. Head back to a world, or use the <a href=\"/worlds\">Worlds</a> page.", msg, err));
+    if (isLobby(w.mv_world_name) && !m.admin) return c.html(commandIdlePage(m, `You're in the Shared World on ${serverLabel(here.server)}`, "The Shared World's Command Center is admin-only. Hop into your own world (or anyone's) on the <a href=\"/worlds\">Worlds</a> page and this page will follow you there.", msg, err));
+    const curDiff = ((await readMvWorld(w.mv_world_name, w.server)).difficulty || "").toLowerCase();
+    c.header("Cache-Control", "no-store");
+    return c.html(consolePage(w, m, all, curDiff, msg, err, true));
+  });
+
   app.post("/worlds/:id/run", async (c) => {
     const m = await me(c); if (!m) return c.redirect("/login");
     const w = getWorld(c.req.param("id"));
     if (!w) return redirect(c, "?err=" + encodeURIComponent("World not found."));
     if (!canAccess(w, m)) return redirect(c, "?err=" + encodeURIComponent("You don't have access to that world."));
     if (isLobby(w.mv_world_name) && !m.admin) return redirect(c, "?err=" + encodeURIComponent("The lobby's Command Center is admin-only."));
-    const back = (q: string) => c.redirect(`/worlds/${w.id}/console?${q}`);
     const form = await c.req.parseBody();
+    const back = (q: string) => c.redirect(`${ccBack(w, form)}?${q}`);
     const cmd = String(form.cmd ?? "");
 
     // Raw passthrough — owner only (equivalent to being op in-game).
@@ -972,8 +1019,8 @@ export function mountWorlds(app: Hono): void {
     const w = getWorld(c.req.param("id"));
     if (!w) return redirect(c, "?err=" + encodeURIComponent("World not found."));
     if (!canAccess(w, m)) return redirect(c, "?err=" + encodeURIComponent("You don't have access to that world."));
-    const back = `/worlds/${w.id}/console`;
     const form = await c.req.parseBody();
+    const back = ccBack(w, form);
     const name = String(form.name ?? "").trim().slice(0, 40);
     if (!name) return c.redirect(`${back}?err=` + encodeURIComponent("Give the location a name."));
     if (listSavedLocations(m.sub, w.server, w.mv_world_name).length >= 50) return c.redirect(`${back}?err=` + encodeURIComponent("You've hit the 50 saved-locations limit for this world."));
@@ -989,14 +1036,14 @@ export function mountWorlds(app: Hono): void {
     const w = getWorld(c.req.param("id"));
     if (!w) return redirect(c, "?err=" + encodeURIComponent("World not found."));
     deleteSavedLocation(m.sub, c.req.param("locId"));
-    return c.redirect(`/worlds/${w.id}/console?msg=` + encodeURIComponent("Deleted."));
+    return c.redirect(`${ccBack(w, await c.req.parseBody())}?msg=` + encodeURIComponent("Deleted."));
   });
   app.post("/worlds/:id/saveloc/:locId", async (c) => {
     const m = await me(c); if (!m) return c.redirect("/login");
     const w = getWorld(c.req.param("id"));
     if (!w) return redirect(c, "?err=" + encodeURIComponent("World not found."));
-    const back = `/worlds/${w.id}/console`;
     const form = await c.req.parseBody();
+    const back = ccBack(w, form);
     const name = String(form.name ?? "").trim().slice(0, 40);
     const world = sanitizeWorldName(String(form.world ?? "")) || w.mv_world_name;
     if (!name) return c.redirect(`${back}?err=` + encodeURIComponent("Name can't be empty."));

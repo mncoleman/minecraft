@@ -20,6 +20,15 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    date: "2026-11-17",
+    title: "One Command Center that follows you",
+    items: [
+      "New Command tab (shortcut T): it finds the world you're standing in, on 1.8 or 26, and runs game mode, time, weather, teleports and items there. No more opening each world's own page.",
+      "Each world still has its own Command page if you want it.",
+      "Teleport to a player is now a list with a Go button per person, and long words no longer spill out of buttons and boxes.",
+    ],
+  },
+  {
     date: "2026-11-16",
     title: "A new look: the panel is a dashboard now",
     items: [

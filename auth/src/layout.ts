@@ -117,7 +117,16 @@ h3{font-size:1rem;margin:0 0 .5rem}
 .page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin:0 0 1.3rem;padding-bottom:1.1rem;border-bottom:1px solid var(--line)}
 .page-head .sub{margin:.25rem 0 0}
 .page-head .eyebrow{font:700 .66rem var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
-.page-head .actions{display:flex;gap:.5rem;flex-wrap:wrap}
+.page-head .actions{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;max-width:100%}
+.page-head .actions .badge{white-space:normal;line-height:1.35;padding:.32rem .65rem;border-radius:10px;font-size:.74rem}
+.page-head > div{min-width:0}
+/* nothing may spill out of its box: long words wrap, controls shrink */
+.card,.panel,.world,.tile,.srv,.empty,.flash,.page-head{overflow-wrap:anywhere;min-width:0}
+button,.pill,.launch{max-width:100%}
+.pill{white-space:normal;text-align:left}
+select,input{max-width:100%;min-width:0;text-overflow:ellipsis}
+.badge{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+code{overflow-wrap:anywhere}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:1.05rem 1.15rem;margin:.6rem 0}
 .card > table:not(.adm){display:block;overflow-x:auto}
 .card td code{white-space:nowrap}
@@ -380,7 +389,7 @@ export function feedbackWidget(): string {
 
 interface ShellOpts {
   title: string;
-  active: string; // play | worlds | friends | claude | admin | guide | feedback | profile
+  active: string; // play | worlds | command | friends | claude | admin | guide | feedback | profile
   username: string;
   admin: boolean;
   body: string;
@@ -421,7 +430,7 @@ export function shell(o: ShellOpts): string {
     ? ' <span class="dot on pulse" title="You have new friend requests" style="margin:0 0 0 .35rem"></span>'
     : "");
   // Single-key nav shortcuts (ignored while typing). 'a' only for admins.
-  const navKeys: Record<string, string> = { w: "/worlds", f: "/friends", c: "/claude", g: "/help", b: "/feedback", p: "/profile", y: "/" };
+  const navKeys: Record<string, string> = { w: "/worlds", t: "/command", f: "/friends", c: "/claude", g: "/help", b: "/feedback", p: "/profile", y: "/" };
   if (o.admin) navKeys.a = "/admin";
   Object.assign(navKeys, o.keys || {});
   return `<!doctype html><html lang="en"><head>
@@ -435,6 +444,7 @@ export function shell(o: ShellOpts): string {
     <div class="sect">Play</div>
     ${tab("play", "/", "Home", "home", "Y")}
     ${tab("worlds", "/worlds", "Worlds", "globe", "W")}
+    ${tab("command", "/command", "Command", "terminal", "T")}
     ${tab("friends", "/friends", friendsLabel, "users", "F")}
     ${tab("claude", "/claude", "Claude", "sparkles", "C")}
     <div class="sect">Help</div>
