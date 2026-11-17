@@ -491,6 +491,13 @@ export async function reassignWorldOwner(world: World, newOwner: User, adminUser
  */
 export async function transferInGameIdentity(userId: string, oldUsername: string, newUsername: string): Promise<{ moved: number; opOn: ServerId[]; opFailed: ServerId[] }> {
   const oldUuid = offlineUuid(oldUsername);
+  // 0. Before any await: if the old name is a server operator (or this is the
+  //    owner, whose op comes from OPS in the game containers), reserve it now so
+  //    nobody can claim it and join with its op while the moves below run.
+  const opServers = enabledServers().filter((srv) => isOperator(oldUsername, srv, "old"));
+  const ownerEmail = (process.env.ADMIN_EMAILS || "").split(",")[0].trim().toLowerCase();
+  const isOwner = !!ownerEmail && !!db.query("SELECT 1 FROM users WHERE id = ? AND email = ? COLLATE NOCASE").get(userId, ownerEmail);
+  if (opServers.length || isOwner) reserveUsername(oldUsername, userId);
   // 1. Kick the old name FIRST so a connected player disconnects (which flushes
   //    their live character data to the OLD uuid .dat) and will reconnect cleanly
   //    under the new identity. Harmless no-op if they're offline.
@@ -529,34 +536,37 @@ export async function transferInGameIdentity(userId: string, oldUsername: string
   //    the new name on every server where the old name holds it, and reserve the
   //    old name so nobody else can sign up as it and inherit op on a restart.
   const opOn: ServerId[] = [], opFailed: ServerId[] = [];
-  let wasOp = false;
-  for (const srv of enabledServers()) {
-    if (!isOperator(oldUsername, srv)) continue;
-    wasOp = true;
+  for (const srv of opServers) {
     await rcon(`op ${newUsername}`, 5000, srv).catch(() => {});
-    // Only drop the old op once the new one is confirmed in ops.json, so a failed
-    // op never leaves the owner without operator rights.
-    if (!isOperator(newUsername, srv)) {
-      console.error(`rename: op ${newUsername} not confirmed on ${srv}; kept op on ${oldUsername}`);
+    // Only drop the old op once ops.json holds the new name's OFFLINE uuid (what
+    // the player actually gets on join). If the server resolved some other uuid
+    // (e.g. a Mojang account with that name), undo it and keep the old op.
+    if (!isOperator(newUsername, srv, "new")) {
+      console.error(`rename: op ${newUsername} not confirmed on ${srv} (offline uuid); kept op on ${oldUsername}`);
+      await rcon(`deop ${newUsername}`, 5000, srv).catch(() => {});
       opFailed.push(srv);
       continue;
     }
     await rcon(`deop ${oldUsername}`, 5000, srv).catch(() => {});
     opOn.push(srv);
   }
-  if (wasOp) reserveUsername(oldUsername, userId);
   return { moved: movedTotal, opOn, opFailed };
 }
 
-/** Is this name (or its offline uuid) in the server's ops.json? */
-function isOperator(username: string, srv: ServerId): boolean {
+/** Is this name in the server's ops.json? "old": match by name or offline uuid
+ *  (any trace of op counts). "new": only the offline uuid counts, since that is
+ *  the identity the player joins with in offline mode. */
+function isOperator(username: string, srv: ServerId, mode: "old" | "new"): boolean {
+  const file = `${SERVERS[srv].gamedataDir}/ops.json`;
+  let ops: Array<{ uuid?: string; name?: string }>;
   try {
-    const ops = JSON.parse(readFileSync(`${SERVERS[srv].gamedataDir}/ops.json`, "utf8")) as Array<{ uuid?: string; name?: string }>;
-    const u = offlineUuid(username), lc = username.toLowerCase();
-    return Array.isArray(ops) && ops.some((o) => o?.uuid === u || String(o?.name ?? "").toLowerCase() === lc);
-  } catch {
+    ops = JSON.parse(readFileSync(file, "utf8"));
+  } catch (e: any) {
+    console.error(`rename: can't read ${file} (${e?.code || e?.message || e}); treating ${username} as not an operator on ${srv}`);
     return false;
   }
+  const u = offlineUuid(username), lc = username.toLowerCase();
+  return Array.isArray(ops) && ops.some((o) => String(o?.uuid ?? "").toLowerCase() === u || (mode === "old" && String(o?.name ?? "").toLowerCase() === lc));
 }
 
 // Worlds that must never be deleted: Bukkit's defaults (the shared lobby is

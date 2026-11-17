@@ -144,7 +144,7 @@ export function mountProfile(app: Hono): void {
     const token = await signSession({ sub: u.id, username: result.newUsername, provider: s.provider, admin: !!u.is_admin });
     setSessionCookie(c, token);
     return c.redirect("/profile?msg=" + encodeURIComponent(
-      `Username changed to ${result.newUsername} — your builds, access and in-game character all moved with you. In the game, set this exact name in Edit Profile, then reconnect.${moved.opOn.length ? ` Operator rights moved too (${moved.opOn.map((s) => (s === "26" ? "26" : "1.8")).join(" and ")}).` : ""}${moved.opFailed.length ? ` Operator rights could NOT be moved on ${moved.opFailed.map((s) => (s === "26" ? "26" : "1.8")).join(" and ")} (the server didn't answer); they stay on ${result.oldUsername}, so rename back or run op from the console.` : ""}`));
+      `Username changed to ${result.newUsername} — your builds, access and in-game character all moved with you. In the game, set this exact name in Edit Profile, then reconnect.${moved.opOn.length ? ` Operator rights moved too (${moved.opOn.map((s) => (s === "26" ? "26" : "1.8")).join(" and ")}). Your old name is kept for you, so nobody else can take it.` : ""}${moved.opFailed.length ? ` Operator rights could NOT be moved on ${moved.opFailed.map((s) => (s === "26" ? "26" : "1.8")).join(" and ")} (the server didn't confirm it); they stay on ${result.oldUsername}, so rename back or run op from the console.` : ""}`));
   });
 
   // Request an email change: confirm-by-link to the NEW address. Nothing changes
