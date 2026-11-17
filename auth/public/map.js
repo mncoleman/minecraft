@@ -144,7 +144,7 @@
     function fitView() {
       var pts = [];
       data.features.forEach(function (f) { if (f.x != null && f.z != null && !f.secret) pts.push(P(f.x, f.z)); });
-      if (pts.length >= 2) { map.fitBounds(L.latLngBounds(pts).pad(0.12)); fitted = true; return; }
+      if (pts.length >= 2) { map.fitBounds(L.latLngBounds(pts).pad(0.12), { animate: false }); fitted = true; return; }
       var b = data.map && data.map.bounds;
       if (b) { map.fitBounds([P(b.x0, b.z0), P(b.x1 + 1, b.z1 + 1)]); fitted = true; }
     }
@@ -335,7 +335,7 @@
         }
         if (first) {
           var b = data.box;
-          map.fitBounds([P(b.from[0], b.from[2]), P(b.to[0] + 1, b.to[2] + 1)]);
+          map.fitBounds([P(b.from[0], b.from[2]), P(b.to[0] + 1, b.to[2] + 1)], { animate: false });
         }
         if (selKey && !data.comps.some(function (r) { return key(r) === selKey; })) selKey = null;
         status(); tabs(); draw();
