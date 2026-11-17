@@ -40,7 +40,7 @@ function profilePage(u: User, msg?: string, err?: string): string {
     <h2>Account</h2>
     <div class="card">
       <table>
-        <tr><td>In-game username</td><td><b>${esc(u.username)}</b><div class="hint">Set this exact name in the game (Main Menu, then Edit Profile, then Username) or you'll be asked to. ${owner ? "As the server owner your username is locked, because your in-game operator rights are tied to it." : "You can change it below."}</div></td></tr>
+        <tr><td>In-game username</td><td><b>${esc(u.username)}</b><div class="hint">Set this exact name in the game (Main Menu, then Edit Profile, then Username) or you'll be asked to. You can change it below.</div></td></tr>
         <tr><td>Email</td><td>${u.email ? esc(u.email) + verifyBadge : '<span class="hint">—</span>'}</td></tr>
         <tr><td>Role</td><td><span class="${roleBadge}">${esc(role)}</span></td></tr>
         <tr><td>Sign-in methods</td><td class="hint">${esc(links)}</td></tr>
@@ -50,7 +50,7 @@ function profilePage(u: User, msg?: string, err?: string): string {
 
     <h2>Make changes</h2>
     <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
-    ${owner ? "" : `
+    ${`
     <div class="card">
       <h3>Change username</h3>
       <form method="post" action="/profile/username" style="display:grid;gap:.6rem"
@@ -118,15 +118,13 @@ export function mountProfile(app: Hono): void {
 
   // Self-service username change. Transfers in-game access (re-grants under the
   // new offline UUID) and re-signs the session cookie so the new name takes effect
-  // immediately. The owner can't be renamed (their in-game op is keyed by name).
+  // immediately. The owner can rename too: transferInGameIdentity moves server
+  // op to the new name and reserves the old one.
   app.post("/profile/username", async (c) => {
     const s = await currentSession(c);
     if (!s) return c.redirect("/login");
     const u = db.query("SELECT * FROM users WHERE id = ?").get(s.sub) as User | null;
     if (!u) return c.redirect("/login");
-    if ((u.email || "").toLowerCase() === OWNER_EMAIL) {
-      return c.redirect("/profile?err=" + encodeURIComponent("The owner username can't be changed."));
-    }
     if (rateLimited("rename:" + clientIp(c))) {
       return c.redirect("/profile?err=" + encodeURIComponent("Too many attempts. Wait a few minutes."));
     }
@@ -141,12 +139,12 @@ export function mountProfile(app: Hono): void {
     const result = renameUser(u.id, String(form.username ?? ""));
     if ("error" in result) return c.redirect("/profile?err=" + encodeURIComponent(result.error));
 
-    await transferInGameIdentity(u.id, result.oldUsername, result.newUsername);
+    const moved = await transferInGameIdentity(u.id, result.oldUsername, result.newUsername);
     // Re-sign the session so forward_auth + the in-game JWT lock use the new name.
     const token = await signSession({ sub: u.id, username: result.newUsername, provider: s.provider, admin: !!u.is_admin });
     setSessionCookie(c, token);
     return c.redirect("/profile?msg=" + encodeURIComponent(
-      `Username changed to ${result.newUsername} — your builds, access and in-game character all moved with you. In the game, set this exact name in Edit Profile, then reconnect.`));
+      `Username changed to ${result.newUsername} — your builds, access and in-game character all moved with you. In the game, set this exact name in Edit Profile, then reconnect.${moved.opOn.length ? ` Operator rights moved too (${moved.opOn.map((s) => (s === "26" ? "26" : "1.8")).join(" and ")}).` : ""}${moved.opFailed.length ? ` Operator rights could NOT be moved on ${moved.opFailed.map((s) => (s === "26" ? "26" : "1.8")).join(" and ")} (the server didn't answer); they stay on ${result.oldUsername}, so rename back or run op from the console.` : ""}`));
   });
 
   // Request an email change: confirm-by-link to the NEW address. Nothing changes

@@ -9,7 +9,7 @@
 // other chat is ignored. State (the on/off toggle + the getUpdates offset)
 // lives in the settings kv table so it survives redeploys.
 
-import { getSetting, setSetting } from "./db.ts";
+import { db, getSetting, setSetting } from "./db.ts";
 import { getPresence, type OnlinePlayer } from "./presence.ts";
 
 const TOKEN = process.env.TELEGRAM_NOTIFY_BOT_TOKEN || "";
@@ -22,6 +22,14 @@ const IGNORE = new Set(
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
 );
+
+// The owner by email (ADMIN_EMAILS[0]), so a rename doesn't start pinging them about themselves.
+function ownerUsername(): string {
+  const email = (process.env.ADMIN_EMAILS || "").split(",")[0].trim().toLowerCase();
+  if (!email) return "";
+  const r = db.query("SELECT username FROM users WHERE email = ? COLLATE NOCASE").get(email) as { username: string } | null;
+  return (r?.username || "").toLowerCase();
+}
 
 const SETTING_ENABLED = "tg_notify_enabled";
 const SETTING_OFFSET = "tg_update_offset";
@@ -168,7 +176,8 @@ async function pollPresence(): Promise<void> {
       return;
     }
     if (enabled()) {
-      const joins = players.filter((p) => !prev!.has(key(p)) && !IGNORE.has(p.name.toLowerCase()));
+      const ownerName = ownerUsername();
+      const joins = players.filter((p) => !prev!.has(key(p)) && !IGNORE.has(p.name.toLowerCase()) && p.name.toLowerCase() !== ownerName);
       for (const p of joins) {
         await send(
           `<b>${esc(p.name)}</b> joined Minecraft ${p.server === "26" ? "26" : "1.8"}${p.world ? ` (world: ${esc(p.world)})` : ""}\n\n${onlineList(players)}`,

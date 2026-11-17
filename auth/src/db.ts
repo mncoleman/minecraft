@@ -327,13 +327,28 @@ export function sanitizeUsername(raw: string): string {
   return u.slice(0, 16);
 }
 
+// Names a server operator gave up by renaming. The game containers re-apply
+// their configured OPS names on restart, so a released operator name must never
+// go to someone else (it would hand them in-game op). Only the account that
+// released it may take it back.
+db.run(`CREATE TABLE IF NOT EXISTS reserved_usernames (
+  username   TEXT PRIMARY KEY COLLATE NOCASE,
+  user_id    TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+)`);
+export function reserveUsername(username: string, userId: string): void {
+  db.run("INSERT OR REPLACE INTO reserved_usernames (username, user_id, created_at) VALUES (?,?,?)", [username, userId, Math.floor(Date.now() / 1000)]);
+}
+
 function usernameTaken(username: string): boolean {
-  return !!db.query("SELECT 1 FROM users WHERE username = ? COLLATE NOCASE").get(username);
+  return !!db.query("SELECT 1 FROM users WHERE username = ? COLLATE NOCASE").get(username)
+    || !!db.query("SELECT 1 FROM reserved_usernames WHERE username = ?").get(username);
 }
 
 /** Same as usernameTaken, but ignores a given user's own row (for renames). */
 export function usernameTakenExcept(username: string, exceptUserId: string): boolean {
-  return !!db.query("SELECT 1 FROM users WHERE username = ? COLLATE NOCASE AND id != ?").get(username, exceptUserId);
+  return !!db.query("SELECT 1 FROM users WHERE username = ? COLLATE NOCASE AND id != ?").get(username, exceptUserId)
+    || !!db.query("SELECT 1 FROM reserved_usernames WHERE username = ? AND user_id != ?").get(username, exceptUserId);
 }
 
 function uniqueUsername(base: string): string {
@@ -498,6 +513,11 @@ export function renameUser(userId: string, rawNew: string): { oldUsername: strin
   if (usernameTakenExcept(next, userId)) return { error: "That username is already taken." };
   db.transaction(() => {
     db.run("UPDATE users SET username = ? WHERE id = ?", [next, userId]);
+    // The new name is free, so any rows still under it are stale leftovers from a
+    // past holder (e.g. this account renaming back). Clear them so the moves below
+    // can't hit the (username, server) key.
+    db.run("DELETE FROM player_locations WHERE username = ? COLLATE NOCASE", [next]);
+    db.run("DELETE FROM pending_destination WHERE username = ? COLLATE NOCASE", [next]);
     db.run("UPDATE player_locations SET username = ? WHERE username = ? COLLATE NOCASE", [next, u.username]);
     db.run("UPDATE pending_destination SET username = ? WHERE username = ? COLLATE NOCASE", [next, u.username]);
     db.run("UPDATE allowlist SET value = ? WHERE kind = 'username' AND value = ? COLLATE NOCASE", [next, u.username]);

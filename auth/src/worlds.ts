@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { readFileSync, readdirSync, existsSync, renameSync } from "node:fs";
 import { $ } from "bun";
-import { db, type User } from "./db.ts";
+import { db, reserveUsername, type User } from "./db.ts";
 import { rcon, rconAll, stripColor } from "./rcon.ts";
 import { SERVERS, enabledServers, DEFAULT_SERVER, type ServerId } from "./servers.ts";
 
@@ -489,7 +489,7 @@ export async function reassignWorldOwner(world: World, newOwner: User, adminUser
  * UUID-derived grants do. Builds (world blocks) are untouched and persist.
  * Best-effort per command (mirrors reconcile()); a kick forces a clean reconnect.
  */
-export async function transferInGameIdentity(userId: string, oldUsername: string, newUsername: string): Promise<{ moved: number }> {
+export async function transferInGameIdentity(userId: string, oldUsername: string, newUsername: string): Promise<{ moved: number; opOn: ServerId[]; opFailed: ServerId[] }> {
   const oldUuid = offlineUuid(oldUsername);
   // 1. Kick the old name FIRST so a connected player disconnects (which flushes
   //    their live character data to the OLD uuid .dat) and will reconnect cleanly
@@ -525,7 +525,38 @@ export async function transferInGameIdentity(userId: string, oldUsername: string
     await revokeBuild(oldUsername, w.mv_world_name, w.server).catch(() => {});
     await grantBuild(newUsername, w.mv_world_name, w.server).catch(() => {});
   }
-  return { moved: movedTotal };
+  // 6. Server operator (the owner, via OPS in each game container): move op to
+  //    the new name on every server where the old name holds it, and reserve the
+  //    old name so nobody else can sign up as it and inherit op on a restart.
+  const opOn: ServerId[] = [], opFailed: ServerId[] = [];
+  let wasOp = false;
+  for (const srv of enabledServers()) {
+    if (!isOperator(oldUsername, srv)) continue;
+    wasOp = true;
+    await rcon(`op ${newUsername}`, 5000, srv).catch(() => {});
+    // Only drop the old op once the new one is confirmed in ops.json, so a failed
+    // op never leaves the owner without operator rights.
+    if (!isOperator(newUsername, srv)) {
+      console.error(`rename: op ${newUsername} not confirmed on ${srv}; kept op on ${oldUsername}`);
+      opFailed.push(srv);
+      continue;
+    }
+    await rcon(`deop ${oldUsername}`, 5000, srv).catch(() => {});
+    opOn.push(srv);
+  }
+  if (wasOp) reserveUsername(oldUsername, userId);
+  return { moved: movedTotal, opOn, opFailed };
+}
+
+/** Is this name (or its offline uuid) in the server's ops.json? */
+function isOperator(username: string, srv: ServerId): boolean {
+  try {
+    const ops = JSON.parse(readFileSync(`${SERVERS[srv].gamedataDir}/ops.json`, "utf8")) as Array<{ uuid?: string; name?: string }>;
+    const u = offlineUuid(username), lc = username.toLowerCase();
+    return Array.isArray(ops) && ops.some((o) => o?.uuid === u || String(o?.name ?? "").toLowerCase() === lc);
+  } catch {
+    return false;
+  }
 }
 
 // Worlds that must never be deleted: Bukkit's defaults (the shared lobby is
