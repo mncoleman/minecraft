@@ -141,6 +141,12 @@ errors) before the live container is swapped.
 
 ## 7. Caddy (the only shared-file edit — done safely)
 
+The site is proxied by Cloudflare (orange cloud). Caddy's global `servers` block
+therefore carries `trusted_proxies static <Cloudflare IP ranges>` and
+`client_ip_headers CF-Connecting-IP`, so `{client_ip}` in the snippet is the real
+visitor. Refresh the ranges from https://api.cloudflare.com/client/v4/ips if they change.
+Free-plan Cloudflare caps request bodies at 100MB, so world uploads above that fail.
+
 ```bash
 # back up first, append our block, validate, then graceful reload
 ssh -i "$KEY" ubuntu@161.153.110.196 '

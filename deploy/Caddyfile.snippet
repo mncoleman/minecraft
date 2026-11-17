@@ -28,7 +28,7 @@ minecraft.mncoleman.com {
 	handle @ws26 {
 		rewrite * /
 		reverse_proxy 127.0.0.1:25570 {
-			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-For {client_ip}
 			header_up X-Eagler-Secret "__MC_FWD_SECRET__"
 		}
 	}
@@ -42,7 +42,7 @@ minecraft.mncoleman.com {
 	}
 	handle @ws {
 		reverse_proxy 127.0.0.1:25569 {
-			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-For {client_ip}
 			# Must equal /data/eagler_forwarding.secret (EaglerXServer forward_secret).
 			header_up X-Eagler-Secret "__MC_FWD_SECRET__"
 		}
@@ -53,6 +53,7 @@ minecraft.mncoleman.com {
 	#    volume. Keeps Caddy filesystem-free, like the other sites.
 	handle {
 		reverse_proxy 127.0.0.1:7900 {
+			header_up X-Forwarded-For {client_ip}
 			transport http {
 				keepalive off
 			}
