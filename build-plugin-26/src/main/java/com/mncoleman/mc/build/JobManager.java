@@ -166,7 +166,7 @@ public final class JobManager {
                 int x = j.xs[i], y = j.ys[i], z = j.zs[i];
                 if (y < minY || y > maxY) { j.skippedOccupied++; continue; }
                 int cx = x >> 4, cz = z >> 4;
-                if (!w.isChunkLoaded(cx, cz) && !w.loadChunk(cx, cz, false)) { j.skippedUngenerated++; continue; }
+                if (!Scanner.ensureChunk(w, cx, cz)) { j.skippedUngenerated++; continue; }
                 Block b = w.getBlockAt(x, y, z);
                 BlockData cur = b.getBlockData();
                 if ("undo".equals(j.kind)) {

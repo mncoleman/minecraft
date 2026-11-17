@@ -52,8 +52,40 @@ public final class Scanner {
     }
 
     private static boolean loaded(World w, int x, int z) {
-        int cx = x >> 4, cz = z >> 4;
-        return w.isChunkLoaded(cx, cz) || w.loadChunk(cx, cz, false);
+        return ensureChunk(w, x >> 4, z >> 4);
+    }
+
+    /**
+     * Load a chunk that exists on disk, never generating new terrain. Chunks
+     * carried over from a 1.12 world are saved below "full" status, so
+     * loadChunk(generate=false) refuses them; isChunkGenerated still reports
+     * them, and getChunkAt finishes the upgrade in place (blocks unchanged).
+     */
+    static boolean ensureChunk(World w, int cx, int cz) {
+        if (w.isChunkLoaded(cx, cz) || w.loadChunk(cx, cz, false)) return true;
+        if (!onDisk(w, cx, cz)) return false;
+        w.getChunkAt(cx, cz);   // generate=true: upgrades the saved chunk; it exists, so nothing new is generated
+        return w.isChunkLoaded(cx, cz);
+    }
+
+    // Region-file headers (1024 offsets each), cached per file. A non-zero
+    // offset means the chunk is saved on disk. isChunkGenerated() is false for
+    // legacy (pre-1.13) chunks, so the header is the only reliable check.
+    private static final java.util.Map<String, int[]> HEADERS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static boolean onDisk(World w, int cx, int cz) {
+        java.io.File f = new java.io.File(new java.io.File(w.getWorldFolder(), "region"), "r." + (cx >> 5) + "." + (cz >> 5) + ".mca");
+        int[] h = HEADERS.computeIfAbsent(f.getAbsolutePath() + "@" + f.lastModified(), k -> readHeader(f));
+        return h[(cx & 31) + (cz & 31) * 32] != 0;
+    }
+
+    private static int[] readHeader(java.io.File f) {
+        int[] h = new int[1024];
+        if (!f.isFile() || f.length() < 4096) return h;
+        try (java.io.DataInputStream in = new java.io.DataInputStream(new java.io.BufferedInputStream(new java.io.FileInputStream(f), 4096))) {
+            for (int i = 0; i < 1024; i++) h[i] = in.readInt();
+        } catch (java.io.IOException e) { /* unreadable: treat as absent */ }
+        return h;
     }
 
     private static char assign(Map<String, Character> pal, String n, int reserved) {
@@ -84,7 +116,7 @@ public final class Scanner {
             for (int z = az; z <= bz; z++) {
                 for (int x = ax; x <= bx; x++) {
                     char c;
-                    if (!loaded(w, x, z)) c = '?';
+                    if (!loaded(w, x, z)) { c = '?'; allAir = false; }
                     else {
                         Block b = w.getBlockAt(x, y, z);
                         if (b.getType().isAir()) c = '.';

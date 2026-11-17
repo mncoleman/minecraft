@@ -262,7 +262,7 @@ public final class ApiServer {
             if (w == null) throw new IllegalArgumentException("world not loaded: " + world);
             if (pos[1] < w.getMinHeight() || pos[1] >= w.getMaxHeight()) throw new IllegalArgumentException("y must be " + w.getMinHeight() + ".." + (w.getMaxHeight() - 1));
             int cx = pos[0] >> 4, cz = pos[2] >> 4;
-            if (!w.isChunkLoaded(cx, cz) && !w.loadChunk(cx, cz, false)) throw new IllegalArgumentException("that spot is in ungenerated terrain");
+            if (!Scanner.ensureChunk(w, cx, cz)) throw new IllegalArgumentException("that spot is in ungenerated terrain");
             org.bukkit.block.BlockState st = w.getBlockAt(pos[0], pos[1], pos[2]).getState();
             if (!(st instanceof org.bukkit.inventory.InventoryHolder))
                 throw new IllegalArgumentException("no container at " + pos[0] + " " + pos[1] + " " + pos[2] + " (found " + BlockSpec.name(st.getBlockData()) + ")");

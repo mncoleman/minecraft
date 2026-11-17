@@ -141,7 +141,7 @@ public final class RailPlanner {
                 while (it.hasNext() && System.nanoTime() < until) {
                     long k = it.next();
                     int cx = (int) (k >> 32), cz = (int) k;
-                    if (!w.isChunkLoaded(cx, cz) && !w.loadChunk(cx, cz, false)) continue; // ungenerated: unknown
+                    if (!Scanner.ensureChunk(w, cx, cz)) continue; // ungenerated: unknown
                     out.put(k, w.getChunkAt(cx, cz).getChunkSnapshot(true, false, false));
                 }
                 if (!it.hasNext()) { Bukkit.getScheduler().cancelTask(task[0]); f.complete(out); }
