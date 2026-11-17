@@ -7,6 +7,8 @@
 #   Multiverse-Core 5, WorldEdit 7, WorldGuard 7, LuckPerms  the world platform
 #                  the panel drives over RCON (modern-command dialect).
 #   Chunky         chunk pregeneration (run once per world, see DEPLOY.md).
+#   BlueMap        3D world map behind the panel's Map tab (configs: server26/bluemap/,
+#                  web server reachable only on the Docker network, proxied by mc-auth).
 #
 # EaglerJwtAuth (plugin/build.sh) and ClaudeBuild-26 (build-plugin-26/build.sh)
 # are built separately.
@@ -27,6 +29,7 @@ PINNED=(
   "070223c535629f3f5d15f002388c1e3ae615a5f4ba051e7ccfb5d716540547a9  worldguard-bukkit-7.0.21.jar  https://cdn.modrinth.com/data/DKY9btbd/versions/fiHLM6oY/worldguard-bukkit-7.0.21.jar"
   "a2c7877eaacf52605f5d2b08000656fbc43f7bec1eaf6ef9e71b6b9103a9c14f  Chunky-Paper-1.5.66.jar  https://cdn.modrinth.com/data/fALzjamp/versions/RBuKjN4k/Chunky-Paper-1.5.66.jar"
   "49cecb66fa1fd22a133039a490e9c1e5095a238e7cd66eb9d2a16fe6c897550d  LuckPerms-Bukkit-5.5.71.jar  https://cdn.modrinth.com/data/Vebnzrzj/versions/b0mk8uS6/LuckPerms-Bukkit-5.5.71.jar"
+  "7bf475936c26107d476c63151c76d5b49e865eebeada12c9e7d92155de877b9f  bluemap-5.29-paper.jar  https://github.com/BlueMap-Minecraft/BlueMap/releases/download/v5.29/bluemap-5.29-paper.jar"
 )
 
 echo "Downloading 26.x plugins (SHA-256 verified) -> $DEST"

@@ -4,6 +4,7 @@ author: mncoleman
 description: Loopback build API for Claude (scan, batched place, undo) and a Mannequin Claude avatar. Paper 26.2.
 main: com.mncoleman.mc.build.ClaudeBuildPlugin
 api-version: '26.2'
+softdepend: [BlueMap]
 commands:
   claudebuild:
     description: "Claude admin: /claude avatar <on|off|test> | status | cancel"

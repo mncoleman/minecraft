@@ -31,6 +31,9 @@ public final class ClaudeBuildPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(chat, this);
         avatar = new Avatar(this);
         jobs = new JobManager(this);
+        if (getServer().getPluginManager().getPlugin("BlueMap") != null) {
+            try { BlueMapMarkers.init(this); } catch (Throwable t) { getLogger().warning("BlueMap markers unavailable: " + t); }
+        }
         try {
             api = new ApiServer(this, getConfig().getInt("api-port", 25581), getConfig().getString("api-token"));
         } catch (Exception e) {

@@ -125,7 +125,16 @@ export function getFeature(srv: ServerId, mv: string, idOrSlug: string): Feature
 export function recentUpdates(srv: ServerId, mv: string, withSecret: boolean, limit = 12) {
   return (db.query(`SELECT id, feature_id, slug, action, title, what, actor, at FROM map_updates WHERE server = ? AND world = ? ${withSecret ? "" : "AND secret = 0"} ORDER BY at DESC, id DESC LIMIT ?`).all(srv, mv, limit) as any[]);
 }
+// BlueMap (bluemap.ts) listens for feature changes to re-push markers and, for
+// secrets, re-cut its render mask. A callback, not an import, so the two modules
+// don't import each other.
+type FeatureListener = (srv: ServerId, mv: string, secretChanged: boolean) => void;
+let featureListener: FeatureListener | null = null;
+export function setFeatureListener(fn: FeatureListener): void { featureListener = fn; }
+let blueMapProbe: (() => Promise<string[]>) | null = null;
+export function setBlueMapProbe(fn: () => Promise<string[]>): void { blueMapProbe = fn; }
 function logUpdate(f: { id: string; slug: string; server: string; world: string; secret: boolean }, action: string, title: string, what: string, actor: string | null) {
+  try { featureListener?.(f.server as ServerId, f.world, f.secret); } catch { /* best effort */ }
   db.run("INSERT INTO map_updates (server, world, feature_id, slug, action, title, what, actor, secret, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
     [f.server, f.world, f.id, f.slug, action, title.slice(0, 120), what.slice(0, 400), actor, f.secret ? 1 : 0, now()]);
 }
@@ -303,6 +312,7 @@ export function removeFeature(srv: ServerId, mv: string, idOrSlug: string, actor
  *  before the secret existed is served until the re-slice paints it over. */
 function touchArea(srv: ServerId, mv: string, secretChanged = false): void {
   if (secretChanged) {
+    try { featureListener?.(srv, mv, true); } catch { /* best effort */ }
     for (const f of areaFeatures(srv, mv)) {
       const dir = `${outDir(srv, mv)}/areas/${f.id}`;
       try { for (const n of readdirSync(dir)) if (/_pub\.png$/.test(n)) unlinkSync(`${dir}/${n}`); writeFileSync(`${dir}/spec.json`, ""); } catch { /* not sliced yet */ }
@@ -399,7 +409,7 @@ async function renderWorld(srv: ServerId, mv: string, force: boolean): Promise<a
   return sum;
 }
 /** Secret boxes (3D) in a world: what the public floor plans paint over. */
-function secretMasks(srv: ServerId, mv: string): Array<{ from: V3; to: V3 }> {
+export function secretMasks(srv: ServerId, mv: string): Array<{ from: V3; to: V3 }> {
   const out: Array<{ from: V3; to: V3 }> = [];
   for (const f of listFeatures(srv, mv, true)) {
     if (!f.secret) continue;
@@ -709,6 +719,7 @@ export function mountMap(app: Hono): void {
     <div class="mpf-title"><span class="eyebrow">Map</span><b>${esc(w.name)}</b> ${edBadge(srv)}</div>
     ${worldSelect({ srv, mv })}
     <div class="mp-status" id="mp-status">Loading…</div>
+    <button type="button" class="mpf-btn" id="mp-view" hidden aria-pressed="false">Top-down</button>
     <button type="button" class="mpf-btn" id="mp-render">Render now</button>
     <button type="button" class="mpf-btn" id="mpf-cards" aria-pressed="false">Hide cards</button>
   </div>
@@ -767,7 +778,9 @@ export function mountMap(app: Hono): void {
     const ms = mapWorld(srv, mv);
     const man = manifest(srv, mv);
     const updates = recentUpdates(srv, mv, priv, 12);
+    const bm = srv === "26" && blueMapProbe ? (await blueMapProbe()).includes(mv) : false;
     return c.json({
+      bluemap: bm,
       world: { id: w.id, name: w.name, mv, server: srv, serverLabel: serverLabel(srv) },
       privileged: priv,
       map: ms ? {

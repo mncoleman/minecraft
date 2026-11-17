@@ -167,10 +167,35 @@
     function colorOf(f) { return f.secret ? SECRET : (KIND[f.kind] || KIND.place)[0]; }
     function isMajor(f) { return !f.underground && (f.kind === 'gate' || f.kind === 'area' || f.kind === 'keepclear' || (f.kind === 'planned' && f.x != null)); }
 
+    // ── 3D view (BlueMap, proxied at /map/3d/) over the same cards ──
+    var view = null, frame = null;
+    function setView(v) {
+      view = v;
+      try { localStorage.setItem('mp-view:' + B.srv + '/' + B.mv, v); } catch (e) { /* private mode */ }
+      var three = v === '3d';
+      if (three && !frame) {
+        frame = document.createElement('iframe');
+        frame.id = 'mp-3d'; frame.className = 'mpf-3d'; frame.title = '3D map of ' + (data ? data.world.name : B.mv);
+        frame.src = '/map/3d/#' + B.mv;
+        $('mpf').insertBefore(frame, $('mp-map').nextSibling);
+      }
+      if (frame) frame.hidden = !three;
+      $('mpf').classList.toggle('three', three);
+      var b = $('mp-view'); b.hidden = !data || !data.bluemap;
+      b.textContent = three ? 'Top-down' : '3D';
+      b.setAttribute('aria-label', three ? 'Switch to the top-down map' : 'Switch to the 3D map');
+      if (!three) setTimeout(function () { map.invalidateSize(); }, 50);
+    }
+    $('mp-view').addEventListener('click', function () { setView(view === '3d' ? '2d' : '3d'); });
+    function fly(x, y, z) {
+      if (view !== '3d' || !frame) return false;
+      try { frame.contentWindow.location.hash = B.mv + ':' + (x + 0.5) + ':' + (y == null ? 80 : y) + ':' + (z + 0.5) + ':120:0:0.9:0:0:perspective'; frame.focus(); return true; } catch (e) { return false; }
+    }
     function load(first) {
       return getJ(B.api).then(function (j) {
         if (j.error) { $('mp-status').textContent = j.error; $('mp-status').className = 'mp-status err'; return; }
         data = j;
+        if (first) { var pref = null; try { pref = localStorage.getItem('mp-view:' + B.srv + '/' + B.mv); } catch (e) { /* private mode */ } setView(data.bluemap && pref !== '2d' ? '3d' : '2d'); }
         renderStatus(); renderTiles(); renderLayers(); drawFeatures(); renderUpdates(); renderSel();
         if (first && !fitted) fitView();
       });
@@ -282,7 +307,7 @@
     function select(id, pan) {
       selId = id; drawFeatures(); renderSel(); openCard('sel');
       var f = find(id);
-      if (pan && f && f.x != null) map.setView(P(f.x + 0.5, f.z + 0.5), Math.max(map.getZoom(), 0));
+      if (pan && f && f.x != null && !fly(f.x, f.y, f.z)) map.setView(P(f.x + 0.5, f.z + 0.5), Math.max(map.getZoom(), 0));
     }
     function chip(text, col) { return '<span class="mp-chip" style="color:' + col + '">' + esc(text) + '</span>'; }
     function renderSel() {
@@ -335,7 +360,7 @@
       e.preventDefault();
       var q = $('mp-goto-q').value.trim(); if (!q || !data) return;
       var m = q.match(/^(-?\d+)[\s,]+(?:(-?\d+)[\s,]+)?(-?\d+)$/);
-      if (m) { var x = +m[1], z = +m[3]; map.setView(P(x + 0.5, z + 0.5), Math.max(map.getZoom(), 1)); $('mp-coords').textContent = 'x ' + x + '  ·  z ' + z; if (PHONE) $('mp-goto-q').blur(); return; }
+      if (m) { var x = +m[1], z = +m[3]; if (fly(x, m[2] != null ? +m[2] : null, z)) return; map.setView(P(x + 0.5, z + 0.5), Math.max(map.getZoom(), 1)); $('mp-coords').textContent = 'x ' + x + '  ·  z ' + z; if (PHONE) $('mp-goto-q').blur(); return; }
       var lq = q.toLowerCase(), all = allItems(), hit = null;
       all.forEach(function (f) { if (!hit && f.x != null && f.name.toLowerCase() === lq) hit = f; });
       all.forEach(function (f) { if (!hit && f.x != null && f.name.toLowerCase().indexOf(lq) >= 0) hit = f; });

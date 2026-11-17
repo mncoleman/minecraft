@@ -157,3 +157,7 @@
   .mpf-coords{left:60px;bottom:8px}
   .mpf-coords .mp-hint{display:none}
 }
+/* 3D (BlueMap) view: the iframe fills the map area under the cards */
+.mpf-3d{position:absolute;inset:0;width:100%;height:100%;border:0;z-index:1;background:#000}
+.mpf.three .mpf-map{visibility:hidden}
+.mpf.three .mpc[data-card="layers"],.mpf.three .mpc[data-card="key"],.mpf.three .mpf-coords{display:none}

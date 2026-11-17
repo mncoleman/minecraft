@@ -79,6 +79,10 @@ public final class ApiServer {
                 case "/rail_verify": out = railVerify(body); break;
                 case "/states": out = Levers.states(plugin, body); break;
                 case "/lever": out = Levers.flip(plugin, body); break;
+                case "/bluemap_markers": {
+                    if (plugin.getServer().getPluginManager().getPlugin("BlueMap") == null) throw new IllegalArgumentException("BlueMap is not installed");
+                    out = BlueMapMarkers.set(plugin, body); break;
+                }
                 case "/cancel": out = sync(() -> { JsonObject o = new JsonObject(); o.addProperty("cancelled", plugin.jobs().cancelCurrent()); return o; }); break;
                 default: send(ex, 404, err("not found")); return;
             }
