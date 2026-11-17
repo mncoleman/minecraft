@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import { currentSession } from "./session.ts";
-import { shell } from "./layout.ts";
+import { shell, icon, pageHead } from "./layout.ts";
 
 // ── Editable content ─────────────────────────────────────────────────────────
 // Add/adjust entries here; the page re-renders from these arrays.
@@ -82,10 +82,15 @@ function cmdRows(cmds: Cmd[]): string {
 
 function page(username: string, isAdmin: boolean): string {
   const body = `
-    <h1>Server Guide</h1>
-    <p class="sub">Server address (if asked): <code>wss://minecraft.mncoleman.com</code></p>
+    ${pageHead({
+      eyebrow: "Help",
+      title: `${icon("book")} Server Guide`,
+      sub: `Server address, only if the game ever asks: <code>wss://minecraft.mncoleman.com</code> for 1.8, <code>wss://minecraft.mncoleman.com/26</code> for 26.`,
+    })}
+    <div class="stats">${[["Y", "Play", "/"], ["W", "Worlds", "/worlds"], ["F", "Friends", "/friends"], ["C", "Claude", "/claude"], ["B", "Feedback", "/feedback"], ["P", "Profile", "/profile"]]
+      .map(([k, l, h]) => `<a class="tile" href="${h}" style="color:inherit"><div class="k">Shortcut</div><div class="v">${k}</div><div class="f">${l}</div></a>`).join("")}</div>
 
-    <h2>Welcome — how this server works</h2>
+    <h2>Welcome: how this server works</h2>
     <div class="card">
       <p style="margin:.1rem 0 .8rem">This isn't a normal Minecraft server — it runs in your browser and ties the game to your account here. Two things are different from anywhere else you've played, and getting them right makes everything else just work:</p>
       <ul style="margin:0;padding-left:1.2rem">
@@ -96,29 +101,33 @@ function page(username: string, isAdmin: boolean): string {
       <p class="hint" style="margin:.8rem 0 0">New to Minecraft itself? The movement, commands and tips below cover the basics, and there are links to full references at the bottom.</p>
     </div>
 
-    <h2>Movement &amp; basics</h2>
-    <div class="card"><table>${cmdRows(BASICS)}</table></div>
+    <div class="cols">
+    <div><h2>Movement &amp; basics</h2>
+    <div class="card"><table>${cmdRows(BASICS)}</table></div></div>
 
-    <h2>Operator commands ${isAdmin ? "" : '<span class="hint">(need operator/admin — shown for reference)</span>'}</h2>
-    <div class="card"><table>${cmdRows(OP_CMDS)}</table></div>
+    <div><h2>Operator commands ${isAdmin ? "" : '<span class="hint">(need operator/admin, shown for reference)</span>'}</h2>
+    <div class="card"><table>${cmdRows(OP_CMDS)}</table></div></div>
+    </div>
 
-    <h2>Tips</h2>
-    <div class="card"><ul style="margin:0;padding-left:1.2rem">${TIPS.map((t) => `<li style="margin:.35rem 0">${esc(t)}</li>`).join("")}</ul></div>
+    <div class="cols">
+    <div><h2>Tips</h2>
+    <div class="card"><ul style="margin:0;padding-left:1.2rem">${TIPS.map((t) => `<li style="margin:.35rem 0">${esc(t)}</li>`).join("")}</ul></div></div>
 
-    <h2>What this version has, and what it does not</h2>
+    <div><h2>The 1.8 server: what it has and what it does not</h2>
     <div class="card">
-      <p style="margin:.1rem 0 .7rem">This is the 1.8 version of Minecraft. It plays great, but a few things from newer versions are not here. The most common surprise is crossbows, which simply do not exist in this version.</p>
+      <p style="margin:.1rem 0 .7rem">There are two servers. <b>26</b> is modern Minecraft with everything you'd expect. <b>1.8</b> is the classic version. It plays great, but a few things from newer versions are not here. The most common surprise is crossbows, which do not exist on 1.8.</p>
       <ul style="margin:0;padding-left:1.2rem">${VERSION_NOTES.map((t) => `<li style="margin:.4rem 0">${esc(t)}</li>`).join("")}</ul>
-      <p class="hint" style="margin:.8rem 0 0">The references at the bottom of this page cover newer versions too, so not everything shown there will exist in this version.</p>
+      <p class="hint" style="margin:.8rem 0 0">The references at the bottom of this page cover newer versions too, so not everything shown there will exist on 1.8.</p>
+    </div></div>
     </div>
 
     <h2>Common questions</h2>
-    <div class="card">${FAQS.map((f) => `<div style="margin:.2rem 0 .9rem"><div style="font-weight:600;margin-bottom:.2rem">${esc(f.q)}</div><div class="hint">${esc(f.a)}</div></div>`).join("")}</div>
+    <div class="grid">${FAQS.map((f) => `<div class="card"><div style="font-weight:700;margin-bottom:.3rem">${esc(f.q)}</div><div class="hint">${esc(f.a)}</div></div>`).join("")}</div>
 
     <h2>Resources</h2>
-    <div class="card"><ul style="margin:0;padding-left:1.2rem">${LINKS.map(
-      (l) => `<li style="margin:.4rem 0"><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a> — <span class="hint">${esc(l.note)}</span></li>`,
-    ).join("")}</ul></div>
+    <div class="grid">${LINKS.map(
+      (l) => `<a class="card" href="${esc(l.url)}" target="_blank" rel="noopener" style="color:inherit"><div style="font-weight:700;color:var(--link)">${esc(l.label)} ↗</div><div class="hint" style="margin-top:.2rem">${esc(l.note)}</div></a>`,
+    ).join("")}</div>
   `;
   return shell({ title: "Guide", active: "guide", username, admin: isAdmin, body });
 }

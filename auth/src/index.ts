@@ -203,9 +203,9 @@ const serveClient = async (c: Context): Promise<Response> => {
   });
 };
 
-// root-based serving: req "/" -> {CLIENTS}/index.html (index default), etc.
-app.get("/", gate, serveClient);
-app.get("/index.html", gate, serveClient);
+// "/" is the server-rendered Home page (mountChangelog); the old static
+// launcher at /index.html now just points there.
+app.get("/index.html", (c) => c.redirect("/"));
 app.get("/wasm/*", gate, serveClient);
 app.get("/js/*", gate, serveClient);
 // The 26 client (a single ~78MB HTML, staged by clients/stage-client-26.sh with

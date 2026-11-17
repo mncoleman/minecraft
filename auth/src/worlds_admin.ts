@@ -24,7 +24,7 @@ function canAccess(w: World, m: { sub: string; admin: boolean }): boolean {
 }
 import { rcon, stripColor } from "./rcon.ts";
 import { config } from "./config.ts";
-import { shell, icon } from "./layout.ts";
+import { shell, icon, edBadge, pageHead, tiles, type Tile } from "./layout.ts";
 
 const GLOBAL_WORLD_CAP = Number(process.env.WORLD_CAP || 8);
 // Names currently mid-upload. A retried upload attempt (see the client's
@@ -67,13 +67,6 @@ function mapUrl(seed: string, srv: ServerId): string {
   const platform = srv === "18" ? "&platform=java_1_12" : "";
   return `https://www.chunkbase.com/apps/seed-map#seed=${encodeURIComponent(seed)}${platform}&dimension=overworld`;
 }
-/** Small edition tag shown on every world/player row. */
-function edBadge(srv: ServerId): string {
-  return srv === "26"
-    ? `<span class="badge" style="background:#1f3d5a;color:#a8d4ff" title="Minecraft 26 server">26</span>`
-    : `<span class="badge" style="background:#3a3a3a;color:#ddd" title="Minecraft 1.8 server">1.8</span>`;
-}
-
 // ── page ─────────────────────────────────────────────────────────────────────
 function worldsPage(me: { sub: string; username: string; admin: boolean; owner: boolean }, onlineAll: OnlinePlayer[], msg?: string, err?: string): string {
   const on = new Set(enabledServers());
@@ -138,23 +131,13 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
     </form>`;
   };
 
-  const ownedBlock = (w: World) => `<div class="world">
-    <div class="row" style="justify-content:space-between;margin-top:0">
-      <span>${edBadge(w.server)} <b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code></span>
-      ${cardLinks(w)}
-    </div>
-    ${/* sharing UI hidden: all worlds are open to everyone (backend kept) */ ""}
+  // One world → a compact row card: name + edition, meta line, actions.
+  const worldRow = (w: World, meta: string, title = esc(w.name)) => `<div class="world">
+    <div class="wname"><b>${title}</b> <code>${esc(w.mv_world_name)}</code></div>
+    ${meta ? `<div class="wmeta">${meta}</div>` : ""}
+    <div class="wacts">${cardLinks(w)}</div>
   </div>`;
-
-  const sharedBlock = (w: World & { owner_username: string }) => `<div class="world"><div class="row" style="justify-content:space-between;margin:0">
-      <span>${edBadge(w.server)} <b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">— shared by ${esc(w.owner_username)}</span></span>
-      ${cardLinks(w)}</div></div>`;
-
-  const adminBlock = (w: World) => {
-    return `<div class="world"><div class="row" style="justify-content:space-between;margin:0">
-      <span>${edBadge(w.server)} <b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">— owner: ${esc(userById(w.owner_user_id)?.username || "?")}</span></span>
-      ${cardLinks(w)}</div></div>`;
-  };
+  const ownerName = (w: World) => esc(userById(w.owner_user_id)?.username || "?");
 
   // One online player → a row with a "Join →" button when the caller can build
   // in that player's current world (registered + shared/owned/admin, or the open
@@ -171,58 +154,83 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
     return `<div class="row" style="justify-content:space-between;margin:.3rem 0"><span><span class="dot on"></span><b>${esc(p.name)}</b> ${edBadge(p.server)} <span class="hint">in ${esc(p.world)}</span></span>${right}</div>`;
   };
 
+  const servers = enabledServers();
+  const onCount = (s: ServerId) => onlineAll.filter((p) => p.server === s).length;
+  const allActive = listAllWorlds().filter((w) => w.status === "active" && on.has(w.server) && !isLobby(w.mv_world_name));
+  const worldsOn = (s: ServerId) => allActive.filter((w) => w.server === s).length + (lobbies.some((l) => l.server === s) ? 1 : 0);
+  const SRV_NOTE: Record<ServerId, string> = { "18": "Classic 1.8 client · Paper 1.12.2", "26": "Modern Minecraft 26 · Paper 26.2" };
+
+  const serverPanel = (s: ServerId) => {
+    const lobby = lobbies.find((l) => l.server === s);
+    const mineHere = owned.filter((w) => w.server === s);
+    const othersHere = others.filter((w) => w.server === s);
+    const n = onCount(s);
+    return `<section class="srv srv-${s}">
+      <div class="srv-h"><div><div class="name">${icon("server")} Minecraft ${serverLabel(s)}</div><div class="ver">${SRV_NOTE[s]}</div></div>
+        <span class="chip${n ? " live" : ""}">${n ? '<span class="dot on"></span>' : ""}${n} online</span></div>
+      <div class="srv-b">
+        ${lobby ? `<div class="sect">Shared World</div>${worldRow(lobby, "The main world everyone shares. Anyone can build.", "Shared World")}` : ""}
+        <div class="sect">Your worlds (${mineHere.length})</div>
+        ${mineHere.length ? mineHere.map((w) => worldRow(w, "You own this world")).join("") : `<div class="empty">You don't own a ${serverLabel(s)} world yet. <a href="#create">Create one →</a></div>`}
+        <div class="sect">Everyone's worlds (${othersHere.length})</div>
+        ${othersHere.length ? othersHere.map((w) => worldRow(w, `Owner: ${ownerName(w)}`)).join("") : '<div class="empty">No other worlds on this server.</div>'}
+      </div>
+    </section>`;
+  };
+
   const body = `
-    <h1>Worlds</h1>
-    <p class="sub">Having access to a world means you can build in it. Hit <b>Play</b> first (it connects you to the server), then use <b>Hop in</b> or <b>Join →</b> to teleport.</p>
-    ${enabledServers().length > 1 ? `<div class="card" style="border-color:#2c4a66">${here
-      ? `You're playing on ${edBadge(here)} <b>${serverLabel(here)}</b> right now. Worlds tagged ${edBadge(here)} are one click away. ${here === "26" ? "1.8" : "26"} worlds stay on the ${here === "26" ? "1.8" : "26"} server: open <b>Play ${here === "26" ? "1.8" : "26"}</b> to visit them.`
-      : `You're not in the game. There are two servers: ${edBadge("18")} <b>1.8</b> and ${edBadge("26")} <b>26</b>. Each world lives on one of them. Hop in queues your trip, then the matching Play button drops you there.`}</div>` : ""}
+    ${pageHead({
+      eyebrow: "Command center",
+      title: `${icon("globe")} Worlds`,
+      sub: "Every world on both servers. Anyone can visit and build in any world. Hit <b>Play</b> first (it connects you), then <b>Hop in</b> or <b>Join</b> to teleport.",
+      actions: `<a class="pill" href="/">${icon("play")} Play</a><a class="pill" href="#create">${icon("plus")} New world</a>`,
+    })}
+    ${tiles([
+      ...servers.map((s): Tile => ({ k: `Online · ${serverLabel(s)}`, v: onCount(s), f: `${worldsOn(s)} worlds on ${serverLabel(s)}`, tone: s, icon: "activity" })),
+      { k: "Worlds", v: allActive.length + lobbies.length, f: servers.map((s) => `${worldsOn(s)} on ${serverLabel(s)}`).join(" · "), icon: "globe" },
+      { k: "Your worlds", v: owned.length, f: me.admin ? "no limit for admins" : `limit ${PER_USER_WORLD_CAP}`, tone: "acc", icon: "user" },
+    ])}
+    ${servers.length > 1 ? `<div class="card" style="border-color:${here === "26" ? "var(--c26-line)" : here ? "var(--c18-line)" : "var(--line)"}">${here
+      ? `${icon("activity")} You're playing on ${edBadge(here)} <b>${serverLabel(here)}</b> right now. Its worlds are one click away. ${here === "26" ? "1.8" : "26"} worlds stay on the ${here === "26" ? "1.8" : "26"} server: open <b>Play ${here === "26" ? "1.8" : "26"}</b> to visit them.`
+      : `You're not in the game. Each world lives on one server, ${edBadge("18")} or ${edBadge("26")}. <b>Hop in</b> queues your trip, then the matching Play button drops you there.`}</div>` : ""}
 
-    <div class="card">
-      <p style="margin:.1rem 0 .6rem"><b>What's a world?</b> A world is a Minecraft map. When you first hit <b>Play</b> you land in the <b>Shared World</b> — a common area anyone can visit. It saves, but it belongs to everyone.</p>
-      <p style="margin:0"><b>Want your own space?</b> Create a world below. It's yours (you're its owner), your builds there save automatically, and everyone on the server can visit and build in it.</p>
-    </div>
+    <div class="split">${servers.map(serverPanel).join("")}</div>
 
-    <h2>Who's online</h2>
-    ${online.length
-      ? `<div class="card">${online.map(onlineRow).join("")}</div>`
-      : me.admin
-        ? '<p class="hint">No one is online right now. Hit <b>Play</b> to jump on.</p>'
-        : '<p class="hint">None of your friends are online right now. You only see friends and people you share a world with here — add friends in the <a href="/friends">Friends</a> tab.</p>'}
-
-    ${lobbies.length ? `<h2>Shared World</h2>
-    ${lobbies.map((lobby) => `<div class="world"><div class="row" style="justify-content:space-between;margin:0">
-      <span>${edBadge(lobby.server)} <b>Shared World</b> <code>${esc(lobby.mv_world_name)}</code> <span class="hint">— the main world everyone shares, anyone can build</span></span>
-      ${cardLinks(lobby)}</div></div>`).join("")}` : ""}
-
-    <h2>My worlds</h2>
-    ${owned.length ? owned.map(ownedBlock).join("") : '<p class="hint">You don\'t own any worlds yet — create one below.</p>'}
-
-    <h2>Everyone's worlds</h2>
-    ${others.length ? others.map(adminBlock).join("") : '<p class="hint">No other worlds.</p>'}
-
-    <h2>Create a world</h2>
-    <div class="card">
+    <div class="cols">
+      <div>
+        <h2>${icon("users")} Who's online</h2>
+        ${online.length
+          ? `<div class="card">${online.map(onlineRow).join("")}</div>`
+          : me.admin
+            ? '<div class="empty">No one is online right now. Hit <b>Play</b> to jump on.</div>'
+            : '<div class="empty">None of your friends are online right now. You only see friends and people you share a world with here. Add friends on the <a href="/friends">Friends</a> tab.</div>'}
+        <div class="card hint" style="margin-top:.8rem"><b style="color:var(--text)">What's a world?</b> A Minecraft map. <b style="color:var(--text)">Play</b> drops you in the <b style="color:var(--text)">Shared World</b>, which belongs to everyone. Create your own world for a space you own: it saves as you build, and everyone can visit.</div>
+      </div>
+      <div id="create">
+        <h2>${icon("plus")} Create a world</h2>
+        <div class="card">
       <p class="hint" style="margin:.1rem 0 .7rem">Pick a short name (letters, numbers and dashes). You'll become its owner; everyone can visit and build in it.</p>
       ${atUserCap
         ? `<p class="hint" style="margin:0">You've reached your limit of ${PER_USER_WORLD_CAP} worlds. Ask an admin if you need more.</p>`
-        : `<form id="create-form" method="post" action="/worlds/create" class="row" style="margin:0"><input name="name" placeholder="my world name" required/><input name="seed" placeholder="seed (optional)"/>${enabledServers().length > 1
-            ? `<select name="server" title="Which server the world lives on (it stays there)">${enabledServers().map((sv) => `<option value="${sv}"${sv === (here ?? "26") ? " selected" : ""}>Minecraft ${serverLabel(sv)}</option>`).join("")}</select>`
+        : `<form id="create-form" method="post" action="/worlds/create" class="row" style="margin:0"><input name="name" placeholder="my world name" required/><input name="seed" placeholder="seed (optional)"/>${servers.length > 1
+            ? `<select name="server" title="Which server the world lives on (it stays there)">${servers.map((sv) => `<option value="${sv}"${sv === (here ?? "26") ? " selected" : ""}>Minecraft ${serverLabel(sv)}</option>`).join("")}</select>`
             : ""}<button class="btn-primary">Create</button></form>
            <div class="progress-wrap" id="create-progress"><div class="progress-track"><div class="progress-fill" id="create-fill"></div></div><div class="progress-label" id="create-label"></div></div>
            <p class="hint" style="margin:.5rem 0 0">Leave the seed blank for a random world, or paste a seed (a number, or any word) to generate a specific one.${me.admin ? "" : ` You can create up to ${PER_USER_WORLD_CAP} worlds.`}</p>`}
-      <div style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid #232a35">
-        <div class="hint" style="margin-bottom:.4rem">Upload a world you built in singleplayer</div>
+      <div style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--line)">
+        <div class="hint" style="margin-bottom:.4rem">${icon("upload")} Upload a world you built in singleplayer ${edBadge("18")}</div>
         <form id="upload-form" method="post" action="/worlds/upload" enctype="multipart/form-data" class="row"><input type="file" name="world" accept=".zip" required/><input name="name" placeholder="world name"/><button class="btn-ghost">Upload .zip</button></form>
         <div class="progress-wrap" id="upload-progress"><div class="progress-track"><div class="progress-fill" id="upload-fill"></div></div><div class="progress-label" id="upload-label"></div></div>
-        <p class="hint" style="margin:.5rem 0 0">In singleplayer: open the world's Backup/Edit menu, choose <b>Convert to Vanilla</b>, then upload the .zip here. Give it a new name.</p>
+        <p class="hint" style="margin:.5rem 0 0">In singleplayer: open the world's Backup/Edit menu, choose <b>Convert to Vanilla</b>, then upload the .zip here. Give it a new name. Uploads go to the 1.8 server.</p>
       </div>
       ${me.admin ? `
-      <div style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid #232a35">
-        <div class="hint" style="margin-bottom:.4rem">Admin tools</div>
+      <div style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--line)">
+        <div class="hint" style="margin-bottom:.4rem">${icon("shield")} Admin tools</div>
         <form method="post" action="/worlds/register" class="row"><input name="mv" placeholder="existing world folder (e.g. cliffbuild)" required/><input name="name" placeholder="display name"/><button class="btn-ghost">Register existing</button></form>
-        <p class="hint" style="margin:.6rem 0 0">Upload and Register apply to the <b>1.8</b> server only. Upload a vanilla world .zip (overworld), or manage users &amp; invites in the <a href="/admin">Admin</a> tab.</p>
+        <p class="hint" style="margin:.6rem 0 0">Register applies to the <b>1.8</b> server only. Manage users &amp; invites in the <a href="/admin">Admin</a> tab.</p>
       </div>` : ""}
+        </div>
+      </div>
     </div>
     <script>
     (function(){
@@ -375,9 +383,12 @@ function notesPage(w: World, meCtx: { username: string; admin: boolean }, note: 
   const editor = note?.updated_by ? userById(note.updated_by)?.username : null;
   const when = note?.updated_at ? new Date(note.updated_at * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : null;
   const body = `
-    <p class="sub"><a href="/worlds">← Worlds</a></p>
-    <h1>${icon("note")} Notes — ${esc(w.name)}</h1>
-    <p class="sub">Shared notepad for this world — everyone with access can read &amp; edit. ${when ? `Last saved ${when}${editor ? " by " + esc(editor) : ""}.` : "No notes yet."}</p>
+    ${pageHead({
+      eyebrow: `Notes · Minecraft ${serverLabel(w.server)}`,
+      title: `${icon("note")} ${esc(isLobby(w.mv_world_name) ? "Shared World" : w.name)} ${edBadge(w.server)}`,
+      sub: `<a href="/worlds">← All worlds</a> · Shared notepad for this world: everyone can read and edit. ${when ? `Last saved ${when}${editor ? " by " + esc(editor) : ""}.` : "No notes yet."}`,
+      actions: `<a class="pill" href="/worlds/${w.id}/console">${icon("terminal")} Command</a>`,
+    })}
     <div class="card">
       <form method="post" action="/worlds/${w.id}/notes">
         <textarea name="body" placeholder="Build plans, coordinates, to-dos…">${esc(note?.body || "")}</textarea>
@@ -501,15 +512,26 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
       .cc-t .hint{font-weight:400}
       .cc-btns{display:flex;gap:.4rem;flex-wrap:wrap}
       .cc-btns button{flex:1;min-width:72px}
-      .cc-sec{margin:1.2rem 0 0;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:#8a94a3}
+      .cc-sec{margin:1.6rem 0 0;font:700 .72rem var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:.5rem}
+      .cc-sec::after{content:"";flex:1;height:1px;background:var(--line)}
       #cc-toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);max-width:92vw;padding:.6rem .9rem;border-radius:10px;font-size:.9rem;z-index:50;display:none;box-shadow:0 6px 24px #0008}
       #cc-toast.ok{background:#234e36;color:#d6f5e1;display:block}
       #cc-toast.err{background:#5a2230;color:#ffd0da;display:block}
       #cc-toast.busy{background:#222a35;color:#cdd6e2;display:block}
       .cc-busy{opacity:.55;pointer-events:none}
     </style>
-    <p class="sub"><a href="/worlds">← Worlds</a></p>
-    <div class="cc-head"><h1>${icon("terminal")} ${esc(w.name)} <code>${esc(w.mv_world_name)}</code> ${edBadge(w.server)}</h1>${status}</div>
+    ${pageHead({
+      eyebrow: `Command center · Minecraft ${serverLabel(w.server)}`,
+      title: `${icon("terminal")} ${esc(isLobby(w.mv_world_name) ? "Shared World" : w.name)} <code>${esc(w.mv_world_name)}</code> ${edBadge(w.server)}`,
+      sub: `<a href="/worlds">← All worlds</a>`,
+      actions: `<a class="pill" href="/worlds/${w.id}/notes">${icon("note")} Notes</a>${status}`,
+    })}
+    ${tiles([
+      { k: "You", v: inWorld ? "In this world" : meOn ? "Elsewhere" : elsewhere ? "Other server" : "Offline", sm: true, f: meHere && meOn ? `${meOn.x}, ${meOn.y}, ${meOn.z}` : meOn ? `in ${esc(meOn.world)}` : `hit Play ${serverLabel(w.server)}`, tone: inWorld ? "18" : "acc", icon: "user" },
+      { k: "Here now", v: online.filter((p) => p.world === w.mv_world_name).length, f: "players in this world", tone: w.server, icon: "activity" },
+      { k: "Saved places", v: saved.length, f: "yours, in this world", icon: "map" },
+      { k: "Difficulty", v: curDiff || "unknown", sm: true, icon: "shield" },
+    ])}
 
     <div class="cc-sec">World controls</div>
     <div class="cc-grid">

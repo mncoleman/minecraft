@@ -6,7 +6,7 @@ import { clientIp, rateLimited } from "./session.ts";
 import { sendEmailChange, sendVerifyEmail } from "./mailer.ts";
 import { signSession } from "./jwt.ts";
 import { transferInGameIdentity } from "./worlds.ts";
-import { shell, esc } from "./layout.ts";
+import { shell, esc, icon, pageHead, tiles, panel } from "./layout.ts";
 
 const OWNER_EMAIL = (config.adminEmails[0] || "").toLowerCase();
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -30,8 +30,14 @@ function profilePage(u: User, msg?: string, err?: string): string {
     : "";
 
   const body = `
-    <h1>Profile</h1>
-    <p class="sub">Your account and in-game identity.</p>
+    ${pageHead({ eyebrow: "Account", title: `${icon("user")} Profile`, sub: "Your account and in-game identity." })}
+    ${tiles([
+      { k: "In-game name", v: u.username, sm: true, f: "set it in Edit Profile", tone: "18", icon: "user" },
+      { k: "Role", v: role, sm: true, icon: "shield" },
+      { k: "Email", v: u.email ? (u.email_verified ? "Verified" : "Unverified") : "None", sm: true, f: u.email ? esc(u.email) : "add one below", tone: u.email && !u.email_verified ? "acc" : undefined, icon: "message" },
+      { k: "Joined", v: u.created_at ? new Date(u.created_at * 1000).toISOString().slice(0, 10) : "—", sm: true, icon: "activity" },
+    ])}
+    <h2>Account</h2>
     <div class="card">
       <table>
         <tr><td>In-game username</td><td><b>${esc(u.username)}</b><div class="hint">Set this exact name in the game (Main Menu, then Edit Profile, then Username) or you'll be asked to. You can change it below.</div></td></tr>
@@ -42,10 +48,12 @@ function profilePage(u: User, msg?: string, err?: string): string {
       </table>
     </div>
 
+    <h2>Make changes</h2>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
     ${owner ? "" : `
-    <h2>Change username</h2>
     <div class="card">
-      <form method="post" action="/profile/username" style="display:grid;gap:.6rem;max-width:340px"
+      <h3>Change username</h3>
+      <form method="post" action="/profile/username" style="display:grid;gap:.6rem"
             onsubmit="return confirm('Change your username to what you typed?\\n\\nEverything carries over — your builds, world access, inventory, position and XP. You will be disconnected from the game and must set the new name in Edit Profile, then reconnect.')">
         <input name="username" placeholder="new username (3–16, letters/numbers/_)" minlength="3" maxlength="16" autocomplete="off" required/>
         ${u.password_hash ? '<input type="password" name="current" placeholder="current password" autocomplete="current-password" required/>' : ""}
@@ -54,9 +62,9 @@ function profilePage(u: User, msg?: string, err?: string): string {
       <p class="hint" style="margin:.5rem 0 0">Everything moves with you — builds, access to every world, and your full in-game character (inventory, ender chest, position, XP). You'll be signed out of the game; reconnect and set the new name in <b>Edit Profile</b>.</p>
     </div>`}
 
-    <h2>Change email</h2>
     <div class="card">
-      <form method="post" action="/profile/email" style="display:grid;gap:.6rem;max-width:340px">
+      <h3>Change email</h3>
+      <form method="post" action="/profile/email" style="display:grid;gap:.6rem">
         <input type="email" name="email" placeholder="new email" required/>
         ${u.password_hash ? '<input type="password" name="current" placeholder="current password" autocomplete="current-password" required/>' : ""}
         <button class="btn-primary" style="justify-self:start">Send confirmation</button>
@@ -69,15 +77,16 @@ function profilePage(u: User, msg?: string, err?: string): string {
     </div>
 
     ${u.password_hash ? `
-    <h2>Change password</h2>
     <div class="card">
-      <form method="post" action="/profile/password" style="display:grid;gap:.6rem;max-width:340px">
+      <h3>Change password</h3>
+      <form method="post" action="/profile/password" style="display:grid;gap:.6rem">
         <input type="password" name="current" placeholder="current password" autocomplete="current-password" required/>
         <input type="password" name="next" placeholder="new password (min 12 chars)" minlength="12" autocomplete="new-password" required/>
         <button class="btn-primary" style="justify-self:start">Update password</button>
       </form>
       <p class="hint" style="margin:.5rem 0 0">Forgot it? <a href="/forgot">Reset by email</a>.</p>
     </div>` : ""}
+    </div>
   `;
   return shell({ title: "Profile", active: "profile", username: u.username, admin: !!u.is_admin, body, msg, err });
 }

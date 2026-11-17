@@ -5,7 +5,8 @@ import { config } from "./config.ts";
 import { currentSession } from "./session.ts";
 import { clientIp, rateLimited } from "./session.ts";
 import { sendFriendRequest } from "./mailer.ts";
-import { shell, esc, icon } from "./layout.ts";
+import { shell, esc, icon, edBadge, pageHead, tiles, panel } from "./layout.ts";
+import { getPresence, type OnlinePlayer } from "./presence.ts";
 
 const now = () => Math.floor(Date.now() / 1000);
 const REQUEST_TTL = 30 * 86400; // friend links/requests valid 30 days
@@ -131,13 +132,14 @@ export function outgoingRequests(userId: string): Array<{ id: string; code: stri
 }
 
 // ── page ───────────────────────────────────────────────────────────────────────
-function friendsPage(
+async function friendsPage(
   me: { sub: string; username: string; admin: boolean },
   newLink: string | null,
   msg?: string,
   err?: string,
-): string {
+): Promise<string> {
   const friends = listFriends(me.sub);
+  const online = await getPresence().catch(() => [] as OnlinePlayer[]);
   const incoming = incomingRequests(me.sub);
   const outgoing = outgoingRequests(me.sub);
 
@@ -152,7 +154,7 @@ function friendsPage(
         </span></div>`,
         )
         .join("")
-    : '<p class="hint">No friend requests right now.</p>';
+    : "";
 
   const friendRow = (f: { id: string; username: string }) =>
     `<div class="row" style="justify-content:space-between;margin:.3rem 0">
@@ -162,7 +164,7 @@ function friendsPage(
     </div>`;
 
   const outgoingBlock = outgoing.length
-    ? `<div class="card"><div style="font-weight:600;margin-bottom:.5rem">Requests you've sent</div>${outgoing
+    ? `<h2>Requests you've sent</h2><div class="card">${outgoing
         .map(
           (r) => `<div class="row" style="justify-content:space-between;margin:.3rem 0">
         <span class="hint">${r.to_username ? "to <b>" + esc(r.to_username) + "</b>" : "open friend link"} — waiting</span>
@@ -173,48 +175,58 @@ function friendsPage(
     : "";
 
   const linkUrl = newLink ? `${config.publicBaseUrl}/friends/j/${newLink}` : null;
+  const onlineBy = new Map(online.map((p) => [p.name.toLowerCase(), p]));
+  const onlineFriends = friends.filter((f) => onlineBy.has(f.username.toLowerCase()));
+
+  const friendCard = (f: { id: string; username: string }) => {
+    const p = onlineBy.get(f.username.toLowerCase());
+    return `<div class="world">
+      <div class="wname"><span class="dot${p ? " on" : ""}"></span><b>${esc(f.username)}</b> ${p ? edBadge(p.server) : ""}</div>
+      <div class="wmeta">${p ? `Playing in ${esc(p.world)}` : "Offline"}</div>
+      <div class="wacts">
+        ${p ? `<form method="post" action="/worlds/hop-to" style="margin:0"><input type="hidden" name="mv" value="${esc(p.world)}"/><input type="hidden" name="server" value="${p.server}"/><button class="btn-ghost">Join →</button></form>` : ""}
+        <form method="post" action="/friends/remove" style="margin:0 0 0 auto" onsubmit="return confirm('Remove ${esc(f.username)} from your friends?')">
+          <input type="hidden" name="id" value="${esc(f.id)}"/><button class="btn-danger">Remove</button></form>
+      </div></div>`;
+  };
 
   const body = `
-    <h1>Friends</h1>
-    <p class="sub">Friends can see when each other are online and jump straight to one another from the <a href="/worlds">Worlds</a> tab. People who aren't your friends can't see when you're playing.</p>
-
-    <div class="card">
-      <p style="margin:.1rem 0 .2rem"><b>Two ways to add a friend:</b></p>
-      <ul style="margin:.2rem 0 0;padding-left:1.2rem">
-        <li style="margin:.3rem 0"><b>By username</b> — if you know their exact in-game name, send a request below. If they have an email on file, we'll email them a link too.</li>
-        <li style="margin:.3rem 0"><b>Share a link</b> — create a friend link and send it to them however you like (text, chat, etc.). When they open it and click <b>Accept</b>, you're friends.</li>
-      </ul>
-    </div>
-
-    <h2>Add by username</h2>
-    <div class="card">
-      <form method="post" action="/friends/request" class="row" style="margin:0">
-        <input name="username" placeholder="their exact username" autocomplete="off" required/>
-        <button class="btn-primary">Send request</button>
-      </form>
-    </div>
-
-    <h2>Your friend link</h2>
-    <div class="card">
-      ${
-        linkUrl
+    ${pageHead({
+      eyebrow: "Command center",
+      title: `${icon("users")} Friends`,
+      sub: `Friends see when each other are online and can jump straight to one another. People who aren't your friends can't see when you're playing.`,
+    })}
+    ${tiles([
+      { k: "Friends", v: friends.length, icon: "users" },
+      { k: "Online now", v: onlineFriends.length, f: onlineFriends.length ? onlineFriends.slice(0, 3).map((f) => esc(f.username)).join(", ") : "nobody right now", tone: "18", icon: "activity" },
+      { k: "Requests", v: incoming.length, f: incoming.length ? "waiting for you" : "none waiting", tone: incoming.length ? "acc" : undefined, icon: "inbox" },
+      { k: "Sent", v: outgoing.length, f: "waiting on them", icon: "message" },
+    ])}
+    ${incoming.length ? panel(`${icon("inbox")} Friend requests <span class="dot on pulse"></span>`, incomingBlock) : ""}
+    <div class="cols">
+      <div>
+        <h2>Your friends</h2>
+        ${friends.length ? `<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">${[...friends].sort((a, b) => Number(onlineBy.has(b.username.toLowerCase())) - Number(onlineBy.has(a.username.toLowerCase()))).map(friendCard).join("")}</div>` : '<div class="empty">No friends yet. Add one by username or send a friend link.</div>'}
+        ${incoming.length ? "" : `<h2>Friend requests</h2><div class="empty">No friend requests right now.</div>`}
+        ${outgoingBlock}
+      </div>
+      <div>
+        <h2>Add a friend</h2>
+        ${panel(`${icon("user")} By username`, `<p class="hint" style="margin:0 0 .6rem">Know their exact in-game name? Send a request. If they have an email on file, we'll email them a link too.</p>
+          <form method="post" action="/friends/request" class="row" style="margin:0">
+            <input name="username" placeholder="their exact username" autocomplete="off" required/>
+            <button class="btn-primary">Send request</button>
+          </form>`)}
+        ${panel(`${icon("link")} Share a friend link`, linkUrl
           ? `<p class="hint" style="margin:0 0 .5rem">Send this link to anyone you want to add. It works once they open it and click Accept.</p>
              <div class="row" style="margin:0">
-               <input id="friendlink" readonly value="${esc(linkUrl)}" style="flex:1;font-family:ui-monospace,monospace;font-size:.85rem"/>
+               <input id="friendlink" readonly value="${esc(linkUrl)}" style="flex:1;font-family:var(--mono);font-size:.85rem"/>
                <button class="btn-ghost" type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('friendlink').value);this.textContent='Copied'">Copy</button>
              </div>`
-          : `<p class="hint" style="margin:0 0 .5rem">Create a link you can share with anyone. They'll become your friend when they open it and accept.</p>
-             <form method="post" action="/friends/link" style="margin:0"><button class="btn-primary">Create a friend link</button></form>`
-      }
+          : `<p class="hint" style="margin:0 0 .6rem">Create a link and send it however you like (text, chat). When they open it and click <b>Accept</b>, you're friends.</p>
+             <form method="post" action="/friends/link" style="margin:0"><button class="btn-primary">Create a friend link</button></form>`)}
+      </div>
     </div>
-
-    <h2>Friend requests</h2>
-    <div class="card">${incomingBlock}</div>
-
-    ${outgoingBlock}
-
-    <h2>Your friends</h2>
-    ${friends.length ? `<div class="card">${friends.map(friendRow).join("")}</div>` : '<p class="hint">No friends yet — add one above.</p>'}
   `;
   return shell({ title: "Friends", active: "friends", username: me.username, admin: me.admin, body, msg, err });
 }
@@ -264,7 +276,7 @@ export function mountFriends(app: Hono): void {
   app.get("/friends", async (c) => {
     const m = await me(c);
     if (!m) return c.redirect("/login");
-    return c.html(friendsPage(m, c.req.query("newlink") ?? null, c.req.query("msg"), c.req.query("err")));
+    return c.html(await friendsPage(m, c.req.query("newlink") ?? null, c.req.query("msg"), c.req.query("err")));
   });
 
   // Send a request to a known username (and email them if possible).

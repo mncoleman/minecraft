@@ -16,7 +16,7 @@ import { signSession } from "./jwt.ts";
 import { getPresence, serverOfPlayer } from "./presence.ts";
 import { SERVERS, enabledServers, isEnabled, parseServer, serverLabel, type ServerId } from "./servers.ts";
 import { listFriends, incomingRequests, outgoingRequests, visibleOnlineUsernames } from "./friends.ts";
-import { shell } from "./layout.ts";
+import { shell, icon, pageHead, tiles } from "./layout.ts";
 import { rcon, stripColor } from "./rcon.ts";
 import {
   getWorldByMv, isLobby, listWorldsOwnedBy, listWorldsSharedWith,
@@ -885,22 +885,45 @@ export function mountMcp(app: Hono): void {
       Array<{ token_hash: string; expires_at: number; name: string; issued_at: number | null; last_used_at: number | null }>;
     const when = (t: number | null) => (t ? new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "never");
     const url = `${config.publicBaseUrl || "https://minecraft.mncoleman.com"}/mcp`;
+    const owner = (() => { const r = db.query("SELECT email FROM users WHERE id = ?").get(s.sub) as { email: string | null } | null; return !!r?.email && r.email.toLowerCase() === OWNER_EMAIL; })();
+    const jobs = (db.query("SELECT COUNT(*) AS n FROM mcp_jobs WHERE user_id = ?").get(s.sub) as { n: number }).n;
     const body = `
-      <h1>Claude</h1>
-      <p class="sub">Build with Claude: ask for things like <i>"an underground cart line from the village to the castle"</i> and Claude plans the route, shows you a preview, builds it, checks it, and can undo it. It reads the terrain, places blocks in batches and chats in game as Claude. It acts as <b>you</b>: same worlds, same rights.</p>
-      <div class="card"><p style="margin:0 0 .4rem;font-size:1.15rem"><b>Connect with claude.ai</b> <span class="hint">(recommended)</span></p>
+      ${pageHead({
+        eyebrow: "Build with AI",
+        title: `${icon("sparkles")} Claude`,
+        sub: `Ask for things like <i>"an underground cart line from the village to the castle"</i>. Claude plans it, shows you a preview, builds it, checks it, and can undo it. It acts as <b>you</b>: same worlds, same rights, on both servers.`,
+      })}
+      ${tiles([
+        { k: "Connected apps", v: conns.length, f: conns.length ? esc(conns[0].name) : "none yet", tone: conns.length ? "18" : undefined, icon: "link" },
+        { k: "Tokens", v: rows.length, f: "for Claude Code", icon: "key" },
+        { k: "Builds by Claude", v: jobs, f: "for you, all time", tone: "26", icon: "pickaxe" },
+        { k: "Console commands", v: owner ? "On" : "Owner only", sm: true, f: owner ? "you're the server owner" : "raw commands stay with the owner", tone: "acc", icon: "terminal" },
+      ])}
+      <div class="cols">
+      <div>
+      <h2>Connect with claude.ai <span class="badge badge-ok">recommended</span></h2>
+      <div class="card">
         <p style="margin:0 0 .5rem">Copy this URL:</p>
-        <div class="codeblock" style="font-size:1.1rem"><code>${esc(url)}</code></div>
+        <div class="codeblock" style="font-size:1.05rem"><code>${esc(url)}</code></div>
         <ol style="margin:.6rem 0 0;padding-left:1.2rem;line-height:1.7">
           <li>In claude.ai, open <b>Settings → Connectors</b> and choose <b>Add custom connector</b>.</li>
           <li>Paste the URL above. You'll sign in here and approve it; no token needed.</li>
           <li>Start a chat and ask Claude to build something. Hit <b>Play</b> first if you want to watch.</li>
         </ol></div>
+      <h2>What Claude can do</h2>
+      <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">
+        <div class="card"><b>${icon("pickaxe")} Build</b><div class="hint">Scans the ground, places blocks in batches, then checks its work. Every build can be undone.</div></div>
+        <div class="card"><b>${icon("map")} Cart lines</b><div class="hint">Plans whole rail lines with tunnels, bridges, powered rails and stations.</div></div>
+        <div class="card"><b>${icon("message")} Chat in game</b><div class="hint">Shows up as a player called Claude with a gold helmet and talks to you in chat.</div></div>
+        <div class="card"><b>${icon("globe")} Worlds &amp; friends</b><div class="hint">Creates worlds, hops you around, saves places, manages friend requests.</div></div>
+      </div>
+      </div>
+      <div>
       <h2>Connected apps</h2>
       ${conns.length ? conns.map((r) => `<div class="world"><div class="row" style="justify-content:space-between;margin:0">
         <span><b>${esc(r.name)}</b> <span class="hint">connected via claude.ai · last used ${when(r.last_used_at)} · until ${when(r.expires_at)} unless used</span></span>
         <form method="post" action="/claude/oauth/${esc(r.token_hash)}/revoke" style="margin:0"><button class="btn-danger">Disconnect</button></form>
-      </div></div>`).join("") : '<p class="hint">No apps connected.</p>'}
+      </div></div>`).join("") : '<div class="empty">No apps connected yet.</div>'}
       <details style="margin-top:1.5rem"${fresh || rows.length ? " open" : ""}><summary class="hint" style="cursor:pointer">Other ways to connect: Claude Code (token), live chat feed</summary>
       <div class="card"><p style="margin:0 0 .4rem"><b>Claude Code setup (once per computer)</b></p>
         <ol style="margin:0;padding-left:1.2rem;line-height:1.7">
@@ -926,8 +949,10 @@ export function mountMcp(app: Hono): void {
       ${rows.length ? rows.map((r) => `<div class="world"><div class="row" style="justify-content:space-between;margin:0">
         <span><b>${esc(r.label)}</b> <span class="hint">created ${when(r.created_at)} · last used ${when(r.last_used_at)}</span></span>
         <form method="post" action="/claude/token/${r.id}/revoke" style="margin:0"><button class="btn-danger">Revoke</button></form>
-      </div></div>`).join("") : '<p class="hint">No tokens yet.</p>'}
-      </details>`;
+      </div></div>`).join("") : '<div class="empty">No tokens yet.</div>'}
+      </details>
+      </div>
+      </div>`;
     return shell({ title: "Claude", active: "claude", username: s.username, admin: !!s.admin, body, msg });
   };
   const playerSession = async (c: Context) => {

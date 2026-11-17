@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "./db.ts";
 import { config } from "./config.ts";
 import { currentSession, clientIp, rateLimited } from "./session.ts";
-import { shell, esc, icon } from "./layout.ts";
+import { shell, esc, icon, pageHead, tiles, panel } from "./layout.ts";
 import { notifyOwner, tgEsc } from "./telegram_notify.ts";
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -234,10 +234,23 @@ function feedbackPage(
         .join("")}</div>`
     : "";
 
+  const labels = recent.map((r) => (r.issue_number != null ? statusFor(statuses.get(r.issue_number))?.label ?? "Open" : "Open"));
+  const countOf = (l: string) => labels.filter((x) => x === l).length;
   const body = `
-    <h1>Feedback</h1>
-    <p class="sub">Have an idea, want a new feature, or hit a bug? Let us know. Every submission goes straight to the admin, and feature requests and bug reports are tracked on the project's GitHub so they don't get lost.</p>
-
+    ${pageHead({
+      eyebrow: "Help",
+      title: `${icon("message")} Feedback`,
+      sub: "Have an idea, want a new feature, or hit a bug? Every submission goes straight to the admin, and requests and bugs are tracked on the project's GitHub so they don't get lost.",
+    })}
+    ${tiles([
+      { k: "Sent", v: recent.length, f: "your recent submissions", icon: "message" },
+      { k: "Open", v: countOf("Open"), icon: "inbox" },
+      { k: "In progress", v: countOf("In progress"), tone: "26", icon: "activity" },
+      { k: "Completed", v: countOf("Completed"), tone: "18", icon: "check" },
+    ])}
+    <div class="cols">
+    <div>
+    <h2>Send feedback</h2>
     <div class="card">
       <form method="post" action="/feedback">
         <label class="hint" style="display:block;margin-bottom:.3rem">What kind of feedback is this?</label>
@@ -259,8 +272,12 @@ function feedbackPage(
       </form>
     </div>
 
-    ${recent.length ? `<h2>Your recent submissions</h2>
-    <p class="hint" style="margin:-.3rem 0 .6rem">The status updates on its own as we work through them — you'll see <b>Completed</b> or <b>Couldn't do this</b> once an item is wrapped up.</p>${recentBlock}` : ""}
+    </div>
+    <div>
+    <h2>Your recent submissions</h2>
+    ${recent.length ? `<p class="hint" style="margin:-.3rem 0 .6rem">The status updates on its own as we work through them. You'll see <b>Completed</b> or <b>Couldn't do this</b> once an item is wrapped up.</p>${recentBlock}` : '<div class="empty">Nothing sent yet. Your submissions and their status show up here.</div>'}
+    </div>
+    </div>
   `;
   return shell({ title: "Feedback", active: "feedback", username: me.username, admin: me.admin, body, msg, err });
 }

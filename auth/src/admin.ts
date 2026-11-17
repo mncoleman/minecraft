@@ -2,7 +2,7 @@ import type { Hono, Context } from "hono";
 import { currentSession } from "./session.ts";
 import { db, type User } from "./db.ts";
 import { config } from "./config.ts";
-import { shell, esc } from "./layout.ts";
+import { shell, esc, icon, edBadge, pageHead, tiles, panel } from "./layout.ts";
 import { listInvites } from "./invites.ts";
 import { listAllWorlds, sharesForWorld, isProtectedWorld } from "./worlds.ts";
 import { getPresence } from "./presence.ts";
@@ -78,9 +78,15 @@ function adminPage(me: { sub: string; username: string; owner: boolean }, online
   }).join("");
 
   const body = `
-    <h1>Admin</h1>
-    <p class="sub">Invite people, manage roles, and see every world. Only you and admins can invite.</p>
-
+    ${pageHead({ eyebrow: "Manage", title: `${icon("shield")} Admin`, sub: "Invite people, manage roles, and see every world. Only you and admins can invite." })}
+    ${tiles([
+      { k: "Players", v: users.length, f: `${users.filter((u) => u.is_admin).length} admins`, icon: "users" },
+      { k: "Online now", v: users.filter((u) => online.has(u.username.toLowerCase())).length, f: "across both servers", tone: "18", icon: "activity" },
+      { k: "Pending invites", v: counts.pending, f: `${counts.accepted} accepted`, tone: "acc", icon: "inbox" },
+      { k: "Worlds", v: worlds.length, f: `${worlds.filter((w) => w.server === "18").length} on 1.8 · ${worlds.filter((w) => w.server === "26").length} on 26`, tone: "26", icon: "globe" },
+    ])}
+    <div class="cols">
+    <div>
     <h2>Invite a friend</h2>
     <div class="card">
       <form method="post" action="/admin/invites">
@@ -96,14 +102,18 @@ function adminPage(me: { sub: string; username: string; owner: boolean }, online
       </form>
       <p class="hint" style="margin:.7rem 0 0">Share the generated link; they pick a username + password and they're in. Turn on "Email the invite" (needs an email) to have us send it for you.</p>
     </div>
+    </div>
+    <div>
     <h2>Invites</h2>
     ${filterTabs}
     ${shownInvites.length
       ? `<table class="adm"><thead><tr><th>Invite</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>${inviteRows}</tbody></table>`
-      : `<p class="hint">No ${inviteFilter === "all" ? "" : inviteFilter + " "}invites${inviteFilter === "all" ? " yet" : ""}.</p>`}
+      : `<div class="empty">No ${inviteFilter === "all" ? "" : inviteFilter + " "}invites${inviteFilter === "all" ? " yet" : ""}.</div>`}
+    </div>
+    </div>
 
     <h2>Users (${users.length})</h2>
-    <table class="adm"><thead><tr><th>Player</th><th>Email</th><th>Last login</th><th></th></tr></thead><tbody>${userRows}</tbody></table>
+    <div class="card" style="padding:.3rem .6rem"><table class="adm"><thead><tr><th>Player</th><th>Email</th><th>Last login</th><th></th></tr></thead><tbody>${userRows}</tbody></table></div>
 
     <h2>All worlds (${worlds.length})</h2>
     ${worlds.length ? worlds.map((w) => {
@@ -115,7 +125,7 @@ function adminPage(me: { sub: string; username: string; owner: boolean }, online
         : `<button type="button" class="btn-danger mc-del" data-id="${w.id}" data-name="${esc(w.name)}" data-mv="${esc(w.mv_world_name)}" data-shared="${shared}">Delete</button>`;
       return `<div class="world">
         <div class="row" style="justify-content:space-between;margin:0;gap:.5rem">
-          <span><span class="badge">${w.server === "26" ? "26" : "1.8"}</span> <b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">owner: ${esc(o?.username || "?")} · ${shared} shared</span></span>
+          <span>${edBadge(w.server)} <b>${esc(w.name)}</b> <code>${esc(w.mv_world_name)}</code> <span class="hint">owner: ${esc(o?.username || "?")} · ${shared} shared</span></span>
           <span class="row" style="margin:0;gap:.4rem">
             ${opts && w.mv_world_name !== "world"
               ? `<form method="post" action="/worlds/${w.id}/reassign" class="row" style="margin:0" onsubmit="return confirm('Reassign ${esc(w.name)} to the selected user? The current owner becomes a shared build member, and you can then delete them if needed.')">
