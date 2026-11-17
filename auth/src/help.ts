@@ -54,6 +54,7 @@ const VERSION_NOTES: string[] = [
 const FAQS: { q: string; a: string }[] = [
   { q: "I got kicked and told to rename. What do I do?", a: "Set your in-game name to exactly your account name, matching capital and lowercase letters, under Edit Profile on the title screen. This is the system protecting your worlds and builds, not a bug." },
   { q: "How do I get my own world instead of the Shared World?", a: "Open the Worlds tab and create a world. Your builds there save automatically." },
+  { q: "Is there a map of my world?", a: "Yes: the Map tab draws each world from its save in Minecraft map colours, with walls, buildings and places on top. Areas like the fortress open floor by floor, with every lever, wire and lamp. Hit Render now on a world that has no map yet." },
   { q: "How do I let a friend build in my world?", a: "Add them on the Friends tab, then use the share control on your world (Worlds tab) to grant them build access." },
   { q: "Why can I not craft a crossbow, a shield, or some other newer item?", a: "Because this is the 1.8 version of Minecraft, and those were added later. See the version section above for what is and is not in this version." },
   { q: "The game feels slow. What can I do?", a: "Lower Render Distance under Options, then Video Settings, and play in a desktop browser for the best speed." },
