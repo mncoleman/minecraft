@@ -50,7 +50,7 @@ export const CHANGELOG: Release[] = [
     date: "2026-11-16",
     title: "Every world is open to everyone",
     items: [
-      "Every player can visit and build in every world, on both servers, and use any world's Command page.",
+      "Every player can visit and build in every world on both servers, and use the Command page of any world except the Shared World.",
       "The lobby is now called the Shared World.",
       "Anyone can upload a world they built in singleplayer (it goes to the 1.8 server).",
       "The Claude page now leads with the claude.ai connector, the easiest way to hook Claude up.",
