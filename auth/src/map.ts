@@ -659,7 +659,11 @@ function sameOrigin(c: Context): boolean {
 function mapShell(v: Viewer, title: string, boot: any, body: string): string {
   const head = `<link rel="stylesheet" href="/map/assets/leaflet.css?v=${ASSET_V}"/><link rel="stylesheet" href="/map/assets/map.css?v=${ASSET_V}"/>`;
   const scripts = `<script>window.MAP_BOOT=${JSON.stringify(boot).replace(/</g, "\\u003c")}</script><script src="/map/assets/leaflet.js?v=${ASSET_V}"></script><script src="/map/assets/map.js?v=${ASSET_V}"></script>`;
-  return shell({ title, active: "map", username: v.username, admin: v.admin, wide: true, body: head + body + scripts });
+  return shell({ title, active: "map", username: v.username, admin: v.admin, full: true, body: head + body + scripts });
+}
+/** A card that floats over the map; its header collapses it. */
+function mapCard(id: string, title: string, inner: string): string {
+  return `<section class="mpc" data-card="${id}" aria-label="${esc(title)}"><button type="button" class="mpc-h" aria-expanded="true" aria-controls="mpc-${id}"><span>${esc(title)}</span><svg class="mpc-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="mpc-b" id="mpc-${id}">${inner}</div></section>`;
 }
 function worldSelect(cur: { srv: ServerId; mv: string }): string {
   const opts = mapWorldsList().map((w) => `<option value="/map/${w.server}/${esc(w.mv)}"${w.server === cur.srv && w.mv === cur.mv ? " selected" : ""}>${esc(w.name)} · ${esc(w.serverLabel)}${w.mapped ? "" : " (no map yet)"}</option>`).join("");
@@ -699,20 +703,26 @@ export function mountMap(app: Hono): void {
     const { srv, mv, w } = ww;
     const boot = { mode: "world", srv, srvLabel: serverLabel(srv), mv, worldId: w.id, api: `/map/api/${srv}/${mv}` };
     const body = `
-${pageHead({ eyebrow: "Map", title: `${esc(w.name)} ${edBadge(srv)}`, sub: "Everything built here, drawn the way an in-game map draws it. Claude adds and updates features through MCP as it builds.", actions: `${worldSelect({ srv, mv })}<div class="mp-status" id="mp-status">Loading…</div><button type="button" class="btn-ghost mp-render" id="mp-render">Render now</button>` })}
-<div class="mp-grid">
-  <section class="mp-mapcard" aria-label="Map">
-    <div class="mp-toolbar"><span class="mp-hint" id="mp-zoom"></span><span class="mp-coords" id="mp-coords" aria-live="polite">Hover or tap the map for coordinates</span><span class="mp-hint" id="mp-zoom-hint" hidden>Pinch, use + and −, or hold Ctrl (⌘) while scrolling to zoom</span></div>
-    <div class="mp-map" id="mp-map" role="application" aria-label="Map of ${esc(w.name)}"></div>
-    <div class="mp-foot"><span>North is up · zoom in for single blocks</span><span id="mp-extent"></span></div>
-  </section>
-  <aside class="mp-side">
-    <section class="card mp-sel" aria-label="Selected" id="mp-sel"><h3 class="mp-h">Selected</h3><p class="muted" style="margin:0">Click a tower, gate, building or place on the map.</p></section>
-    <section class="card" aria-label="Layers"><h3 class="mp-h">Layers</h3><div class="mp-layers" id="mp-layers"></div></section>
-    <section class="card" aria-label="Terrain colours"><h3 class="mp-h">Terrain colours</h3><div class="mp-key" id="mp-key"></div><p class="hint" style="margin:.6rem 0 0;font-size:.78rem">Same colours as a Minecraft map. Slopes are lighter facing north, darker facing south.</p></section>
-  </aside>
-</div>
-<section class="card" aria-label="Recent map updates"><h3 class="mp-h">Recent map updates <span class="hint">from Claude, through MCP</span></h3><div class="mp-updates" id="mp-updates"></div></section>`;
+<div class="mpf" id="mpf">
+  <div class="mpf-map" id="mp-map" role="application" aria-label="Map of ${esc(w.name)}. Drag to pan, scroll or pinch to zoom."></div>
+  <div class="mpf-top">
+    <div class="mpf-title"><span class="eyebrow">Map</span><b>${esc(w.name)}</b> ${edBadge(srv)}</div>
+    ${worldSelect({ srv, mv })}
+    <div class="mp-status" id="mp-status">Loading…</div>
+    <button type="button" class="mpf-btn" id="mp-render">Render now</button>
+    <button type="button" class="mpf-btn" id="mpf-cards" aria-pressed="false">Hide cards</button>
+  </div>
+  <div class="mpf-col mpf-left">
+    ${mapCard("sel", "Selected", `<div id="mp-sel"><p class="muted" style="margin:0">Click a tower, gate, building or place on the map.</p></div>`)}
+    ${mapCard("goto", "Go to", `<form id="mp-goto" class="mp-goto" autocomplete="off"><label class="sr" for="mp-goto-q">Place, feature or coordinates</label><input id="mp-goto-q" list="mp-goto-list" placeholder="North Gate, or x z" enterkeyhint="go"/><datalist id="mp-goto-list"></datalist><button type="submit" class="btn-primary">Go</button></form><p class="hint" style="margin:.45rem 0 0;font-size:.78rem">A saved place, a feature, or coordinates like <code>140 260</code>.</p>`)}
+  </div>
+  <div class="mpf-col mpf-right">
+    ${mapCard("layers", "Layers", `<div class="mp-layers" id="mp-layers"></div>`)}
+    ${mapCard("key", "Terrain colours", `<div class="mp-key" id="mp-key"></div><p class="hint" style="margin:.6rem 0 0;font-size:.78rem">Same colours as a Minecraft map. Slopes are lighter facing north, darker facing south.</p>`)}
+    ${mapCard("updates", "Recent map updates", `<div class="mp-updates" id="mp-updates"></div>`)}
+  </div>
+  <div class="mpf-coords"><span class="mp-coords" id="mp-coords" aria-live="polite">Hover or tap the map for coordinates</span><span class="mp-hint" id="mp-zoom"></span></div>
+</div>`;
     c.header("Cache-Control", "no-store");
     return c.html(mapShell(v, `Map · ${w.name}`, boot, body));
   });
@@ -727,20 +737,21 @@ ${pageHead({ eyebrow: "Map", title: `${esc(w.name)} ${edBadge(srv)}`, sub: "Ever
     if (!f || (f.secret && !priv) || !f.box || !f.floors) return c.redirect(`/map/${srv}/${mv}`);
     const boot = { mode: "area", srv, srvLabel: serverLabel(srv), mv, worldId: w.id, fid: f.id, api: `/map/api/${srv}/${mv}/area/${f.id}`, back: `/map/${srv}/${mv}` };
     const body = `
-<div class="mp-crumbs"><a href="/map/${srv}/${esc(mv)}">Map</a><span>›</span><a href="/map/${srv}/${esc(mv)}">${esc(w.name)}</a><span>›</span><span>${esc(f.name)}</span></div>
-${pageHead({ title: esc(f.name), sub: "Floor by floor, from the save file. Every wire, lamp, piston, door and trigger is drawn where it sits, with its live state. Pick a lever to see what it powers.", actions: `<a class="pill" href="/map/${srv}/${esc(mv)}">Back to the ${esc(w.name)} map</a><div class="mp-status" id="mp-status">Loading…</div>` })}
-<div class="mp-floors" role="tablist" aria-label="Floor" id="mp-floors"></div>
-<div class="mp-grid">
-  <section class="mp-mapcard" aria-label="Floor plan">
-    <div class="mp-toolbar"><span class="mp-hint" id="mp-live"></span><span class="mp-coords" id="mp-coords" aria-live="polite">Hover or tap the plan for coordinates</span><span class="mp-hint" id="mp-zoom-hint" hidden>Pinch, use + and −, or hold Ctrl (⌘) while scrolling to zoom</span></div>
-    <div class="mp-map mp-plan" id="mp-map" role="application" aria-label="Floor plan of ${esc(f.name)}"></div>
-    <div class="mp-foot"><span>Plan cut at head height · darker blocks are walls · 1 square = 1 block</span><span id="mp-snap"></span></div>
-  </section>
-  <aside class="mp-side">
-    <section class="card" aria-label="Selected lever" id="mp-lever"><h3 class="mp-h">Lever</h3><p class="muted" style="margin:0">Loading…</p></section>
-    <section class="card" aria-label="On this floor"><h3 class="mp-h">On this floor</h3><div class="mp-layers" id="mp-layers"></div></section>
-    <section class="card" aria-label="Switchboard"><h3 class="mp-h">Switchboard</h3><div class="mp-switch" id="mp-switch"></div></section>
-  </aside>
+<div class="mpf" id="mpf">
+  <div class="mpf-map mp-plan" id="mp-map" role="application" aria-label="Floor plan of ${esc(f.name)}. Drag to pan, scroll or pinch to zoom."></div>
+  <div class="mpf-top">
+    <div class="mpf-title"><a class="eyebrow" href="/map/${srv}/${esc(mv)}">${esc(w.name)} map</a><b>${esc(f.name)}</b></div>
+    <a class="mpf-btn" href="/map/${srv}/${esc(mv)}">Back to the map</a>
+    <div class="mp-status" id="mp-status">Loading…</div>
+    <button type="button" class="mpf-btn" id="mpf-cards" aria-pressed="false">Hide cards</button>
+  </div>
+  <div class="mpf-floors" role="tablist" aria-label="Floor" id="mp-floors"></div>
+  <div class="mpf-col mpf-right">
+    ${mapCard("lever", "Lever", `<div id="mp-lever"><p class="muted" style="margin:0">Loading…</p></div>`)}
+    ${mapCard("switch", "Switchboard", `<div class="mp-switch" id="mp-switch"></div>`)}
+    ${mapCard("floor", "On this floor", `<div class="mp-layers" id="mp-layers"></div><p class="hint" style="margin:.6rem 0 0;font-size:.78rem">Plan cut at head height. Darker blocks are walls. One square is one block.</p>`)}
+  </div>
+  <div class="mpf-coords"><span class="mp-coords" id="mp-coords" aria-live="polite">Hover or tap the plan for coordinates</span><span class="mp-hint" id="mp-live"></span></div>
 </div>`;
     c.header("Cache-Control", "no-store");
     return c.html(mapShell(v, `${f.name} · Map`, boot, body));

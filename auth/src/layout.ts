@@ -260,6 +260,11 @@ tbody tr:hover td{background:rgba(255,255,255,.015)}
 .filters a{padding:.3rem .65rem;border-radius:999px;border:1px solid var(--line2);color:#aeb6c2;font-size:.83rem;font-weight:600}
 .filters a:hover{background:var(--panel2);color:var(--text)}
 .filters a.on{background:#21402f;border-color:var(--accent-b);color:#dcf5e6}
+/* full-screen app pages (the Map): fill the viewport, never scroll the page */
+body.full{overflow:hidden;height:100vh;height:100dvh}
+body.full .app{height:100vh;height:100dvh;min-height:0}
+body.full .main{position:relative;overflow:hidden;min-height:0}
+body.full .wrap.full{max-width:none;margin:0;padding:0;height:100%}
 /* ── tablets: narrower sidebar, stacked columns ─────────────────────────── */
 @media (max-width:1100px){
   .cols,.cols-3{grid-template-columns:minmax(0,1fr)}
@@ -279,6 +284,7 @@ tbody tr:hover td{background:rgba(255,255,255,.015)}
   .tab kbd{display:none}
   .tab.active::before{display:none}
   .wrap{padding:1.1rem .8rem 4.5rem}
+  body.full .app{grid-template-rows:auto minmax(0,1fr)}
   h1{font-size:1.35rem}
   .tile .v{font-size:1.55rem}
   .stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem}
@@ -396,6 +402,7 @@ interface ShellOpts {
   msg?: string | null;
   err?: string | null;
   wide?: boolean; // use the wider container (dense admin tables)
+  full?: boolean; // full-screen app view (the Map): the content fills the screen and the page never scrolls
   /** Extra single-key shortcuts for this page (override the nav map). */
   keys?: Record<string, string>;
 }
@@ -436,7 +443,7 @@ export function shell(o: ShellOpts): string {
   return `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"/><link rel="apple-touch-icon" href="/email-logo.png"/>
-<title>${esc(o.title)} · Minecraft</title><style>${SHARED_CSS}${ICON_CSS}</style></head><body>
+<title>${esc(o.title)} · Minecraft</title><style>${SHARED_CSS}${ICON_CSS}</style></head><body${o.full ? ' class="full"' : ""}>
 <div class="app">
 <nav class="nav" aria-label="Panel">
   <a class="brand" href="/">${icon("pickaxe")}<span>Minecraft<small>Command center</small></span></a>
@@ -456,7 +463,7 @@ export function shell(o: ShellOpts): string {
   </div>
   <div class="acct"><span><b>${esc(o.username)}</b>${o.admin ? ' <span class="badge badge-admin">admin</span>' : ""}</span><form method="post" action="/logout" style="margin:0;display:inline"><button class="tab-btn" type="submit">Log out</button></form></div>
 </nav>
-<main class="main"><div class="wrap${o.wide ? " wide" : ""}">
+<main class="main"><div class="wrap${o.full ? " full" : o.wide ? " wide" : ""}">
   ${o.msg ? `<div class="flash">${esc(o.msg)}</div>` : ""}
   ${o.err ? `<div class="flash flash-err">${esc(o.err)}</div>` : ""}
   ${o.body}
@@ -482,6 +489,6 @@ export function shell(o: ShellOpts): string {
     c.addEventListener("click", function(){ if (busy) return; copy(orig, function(ok){ if(!ok) return; busy = true; c.textContent="copied"; setTimeout(function(){ c.textContent=orig; busy = false; }, 1000); }); });
   });
 })();</script>
-${o.active !== "feedback" ? feedbackWidget() : ""}
+${o.active !== "feedback" && !o.full ? feedbackWidget() : ""}
 </body></html>`;
 }

@@ -72,23 +72,58 @@
     }
   });
 
-  // The map sits in a scrolling page: a plain wheel scrolls the page, ctrl/cmd +
-  // wheel (and a trackpad pinch, which arrives as ctrl+wheel) zooms the map.
-  function wheelZoom(map, step) {
-    var acc = 0, el = map.getContainer(), hintT;
-    el.addEventListener('wheel', function (e) {
-      if (!(e.ctrlKey || e.metaKey)) {
-        var h = $('mp-zoom-hint');
-        if (h) { h.hidden = false; clearTimeout(hintT); hintT = setTimeout(function () { h.hidden = true; }, 1400); }
-        return;
+  // Floating cards: each header collapses its card (remembered per page); one
+  // button hides them all. On a phone they start collapsed so the map shows.
+  var PHONE = window.matchMedia && window.matchMedia('(max-width: 700px)').matches;
+  function cardKey(id) { return 'mp-card:' + B.mode + ':' + id; }
+  function setCard(el, open, remember) {
+    el.classList.toggle('collapsed', !open);
+    el.querySelector('.mpc-h').setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (remember) try { localStorage.setItem(cardKey(el.getAttribute('data-card')), open ? '1' : '0'); } catch (e) { /* private mode */ }
+  }
+  function openCard(id) { var el = document.querySelector('.mpc[data-card="' + id + '"]'); if (el) setCard(el, true, false); }
+  document.querySelectorAll('.mpc').forEach(function (el) {
+    var saved = null;
+    try { saved = localStorage.getItem(cardKey(el.getAttribute('data-card'))); } catch (e) { /* private mode */ }
+    setCard(el, saved === null ? !PHONE : saved === '1', false);
+    el.querySelector('.mpc-h').addEventListener('click', function () { setCard(el, el.classList.contains('collapsed'), true); });
+  });
+  var cardsBtn = $('mpf-cards');
+  if (cardsBtn) cardsBtn.addEventListener('click', function () {
+    var hide = !$('mpf').classList.contains('nocards');
+    $('mpf').classList.toggle('nocards', hide);
+    cardsBtn.setAttribute('aria-pressed', hide ? 'true' : 'false');
+    cardsBtn.textContent = hide ? 'Show cards' : 'Hide cards';
+  });
+  // The top bar wraps on narrow screens: keep the floor tabs and card columns just below it.
+  function layoutCols() {
+    var t = document.querySelector('.mpf-top'); if (!t) return;
+    var h = t.offsetTop + t.offsetHeight + 8, fl = $('mp-floors');
+    if (fl) { fl.style.top = h + 'px'; if (fl.offsetHeight) h += fl.offsetHeight + 8; }
+    document.querySelectorAll('.mpf-col').forEach(function (c) {
+      if (PHONE && c.classList.contains('mpf-right') && document.querySelector('.mpf-left')) return; // bottom-anchored on phones
+      c.style.top = h + 'px';
+    });
+  }
+  window.addEventListener('resize', layoutCols);
+  if (window.ResizeObserver) { var top0 = document.querySelector('.mpf-top'); if (top0) new ResizeObserver(layoutCols).observe(top0); var fl0 = $('mp-floors'); if (fl0) new ResizeObserver(layoutCols).observe(fl0); }
+  layoutCols();
+  function sidePad(map) { return PHONE ? 8 : Math.round(Math.min(340, map.getSize().x * 0.28)); }
+  function baseMap(opts, fit) {
+    var map = L.map('mp-map', L.extend({ crs: CRS, attributionControl: false, zoomControl: false, keyboard: true }, opts));
+    L.control.zoom({ position: 'bottomleft' }).addTo(map);
+    var Fit = L.Control.extend({
+      options: { position: 'bottomleft' },
+      onAdd: function () {
+        var d = L.DomUtil.create('div', 'leaflet-bar'), a = L.DomUtil.create('a', 'mp-fit', d);
+        a.href = '#'; a.title = 'Fit to view'; a.setAttribute('role', 'button'); a.setAttribute('aria-label', 'Fit to view'); a.innerHTML = '&#x2922;';
+        L.DomEvent.on(a, 'click', function (e) { L.DomEvent.preventDefault(e); L.DomEvent.stopPropagation(e); fit(); });
+        L.DomEvent.disableClickPropagation(d);
+        return d;
       }
-      e.preventDefault();
-      acc += e.deltaY;
-      if (Math.abs(acc) < 30) return;
-      var z = map.getZoom() + (acc < 0 ? step : -step);
-      acc = 0;
-      map.setZoomAround(map.mouseEventToContainerPoint(e), Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), z)));
-    }, { passive: false });
+    });
+    new Fit().addTo(map);
+    return map;
   }
   var sel = document.getElementById('mp-world');
   if (sel) sel.addEventListener('change', function () { location.href = sel.value; });
@@ -115,8 +150,7 @@
     var data = null, selId = null, tiles = null, gridLayer = null, featureGroup = L.layerGroup(), markers = {}, fitted = false, pollT = null;
 
     $('mp-key').innerHTML = KEY.map(function (k) { return '<span><i style="background:' + k[1] + '"></i>' + esc(k[0]) + '</span>'; }).join('');
-    var map = L.map('mp-map', { crs: CRS, minZoom: -5, maxZoom: 5, zoomSnap: 1, attributionControl: false, keyboard: true, scrollWheelZoom: false });
-    wheelZoom(map, 1);
+    var map = baseMap({ minZoom: -5, maxZoom: 5, zoomSnap: 1 }, function () { fitView(); });
     featureGroup.addTo(map);
     map.setView(P(150, 150), -1);
     coordsReadout(map, $('mp-coords'), function (x, z) { return 'x ' + x + '  ·  z ' + z; });
@@ -144,9 +178,10 @@
     function fitView() {
       var pts = [];
       data.features.forEach(function (f) { if (f.x != null && f.z != null && !f.secret) pts.push(P(f.x, f.z)); });
-      if (pts.length >= 2) { map.fitBounds(L.latLngBounds(pts).pad(0.12), { animate: false }); fitted = true; return; }
+      var pad = { animate: fitted, paddingTopLeft: [sidePad(map), PHONE ? 120 : 70], paddingBottomRight: [sidePad(map), 12] };
+      if (pts.length >= 2) { map.fitBounds(L.latLngBounds(pts), pad); fitted = true; return; }
       var b = data.map && data.map.bounds;
-      if (b) { map.fitBounds([P(b.x0, b.z0), P(b.x1 + 1, b.z1 + 1)]); fitted = true; }
+      if (b) { map.fitBounds([P(b.x0, b.z0), P(b.x1 + 1, b.z1 + 1)], pad); fitted = true; }
     }
     function renderStatus() {
       var m = data.map, el = $('mp-status'), btn = $('mp-render');
@@ -158,7 +193,7 @@
       else if (/^error/.test(m.status)) { el.textContent = 'Last render failed · ' + ago(m.rendered_at); el.className = 'mp-status err'; }
       else el.textContent = 'Terrain from the world save · ' + ago(m.rendered_at);
       btn.disabled = busy;
-      if (data.map.bounds) $('mp-extent').textContent = 'x ' + data.map.bounds.x0 + ' … ' + data.map.bounds.x1 + ' · z ' + data.map.bounds.z0 + ' … ' + data.map.bounds.z1;
+      if (data.map.bounds && $('mp-extent')) $('mp-extent').textContent = 'x ' + data.map.bounds.x0 + ' … ' + data.map.bounds.x1 + ' · z ' + data.map.bounds.z0 + ' … ' + data.map.bounds.z1;
       clearTimeout(pollT);
       if (busy) pollT = setTimeout(function () { load(false); }, 5000);
     }
@@ -245,18 +280,18 @@
     }
     function find(id) { var all = allItems(); for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i]; return null; }
     function select(id, pan) {
-      selId = id; drawFeatures(); renderSel();
+      selId = id; drawFeatures(); renderSel(); openCard('sel');
       var f = find(id);
       if (pan && f && f.x != null) map.setView(P(f.x + 0.5, f.z + 0.5), Math.max(map.getZoom(), 0));
     }
     function chip(text, col) { return '<span class="mp-chip" style="color:' + col + '">' + esc(text) + '</span>'; }
     function renderSel() {
       var el = $('mp-sel'), f = selId ? find(selId) : null;
-      if (!f) { el.innerHTML = '<h3 class="mp-h">Selected</h3><p class="muted" style="margin:0">Click a tower, gate, building or place on the map.</p>'; return; }
+      if (!f) { el.innerHTML = '<p class="muted" style="margin:0">Click a tower, gate, building or place on the map.</p>'; return; }
       var col = f.saved ? KIND.saved[0] : colorOf(f);
       var stc = /plan|building now/i.test(f.status) ? '#ffd166' : /protect/i.test(f.status) ? '#ff6b6b' : '#46d17f';
       var where = f.x != null ? f.x + ', ' + (f.y == null ? '?' : f.y) + ', ' + f.z : '—';
-      var h = '<h3 class="mp-h">Selected</h3><div class="mp-chips">' + chip(f.kindLabel || f.kind, col) + (f.status ? chip(f.status, stc) : '') + (f.secret ? chip('Secret', SECRET) : '') + '</div>' +
+      var h = '<div class="mp-chips">' + chip(f.kindLabel || f.kind, col) + (f.status ? chip(f.status, stc) : '') + (f.secret ? chip('Secret', SECRET) : '') + '</div>' +
         '<h4>' + esc(f.name) + '</h4>' + (f.detail ? '<p class="d">' + esc(f.detail) + '</p>' : '') +
         '<div class="mp-facts"><div class="mp-fact"><div class="k">Where</div><div class="v">' + esc(where) + '</div></div>' +
         '<div class="mp-fact"><div class="k">Updated</div><div class="v t">' + (f.updated_at ? esc(ago(f.updated_at)) : '—') + '</div></div></div><div class="mp-acts">';
@@ -288,10 +323,26 @@
     $('mp-updates').addEventListener('click', function (e) {
       var b = e.target.closest('.mp-upd'); if (!b) return;
       var id = b.getAttribute('data-f');
-      if (id && find(id)) { select(id, true); document.getElementById('mp-map').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+      if (id && find(id)) select(id, true);
       else toast('That one has been removed from the map.');
     });
-    load(true);
+    function gotoOptions() {
+      var names = {};
+      allItems().forEach(function (f) { if (f.x != null) names[f.name] = 1; });
+      $('mp-goto-list').innerHTML = Object.keys(names).sort().map(function (n) { return '<option value="' + esc(n) + '"></option>'; }).join('');
+    }
+    $('mp-goto').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var q = $('mp-goto-q').value.trim(); if (!q || !data) return;
+      var m = q.match(/^(-?\d+)[\s,]+(?:(-?\d+)[\s,]+)?(-?\d+)$/);
+      if (m) { var x = +m[1], z = +m[3]; map.setView(P(x + 0.5, z + 0.5), Math.max(map.getZoom(), 1)); $('mp-coords').textContent = 'x ' + x + '  ·  z ' + z; if (PHONE) $('mp-goto-q').blur(); return; }
+      var lq = q.toLowerCase(), all = allItems(), hit = null;
+      all.forEach(function (f) { if (!hit && f.x != null && f.name.toLowerCase() === lq) hit = f; });
+      all.forEach(function (f) { if (!hit && f.x != null && f.name.toLowerCase().indexOf(lq) >= 0) hit = f; });
+      if (!hit) { toast('Nothing called "' + q + '" on this map.', true); return; }
+      select(hit.id, true); if (PHONE) $('mp-goto-q').blur();
+    });
+    load(true).then(gotoOptions);
     setInterval(function () { if (!document.hidden) load(false); }, 60000);
   }
 
@@ -307,8 +358,7 @@
     var data = null, floorY = null, selKey = null, net = null, overlay = null, gridLayer = null, busy = false;
     var renderer = L.canvas({ padding: 0.3 });
     var compGroup = L.layerGroup(), leverGroup = L.layerGroup(), roomGroup = L.layerGroup();
-    var map = L.map('mp-map', { crs: CRS, minZoom: -1, maxZoom: 6, zoomSnap: 0.5, attributionControl: false, scrollWheelZoom: false });
-    wheelZoom(map, 0.5);
+    var map = baseMap({ minZoom: -1, maxZoom: 6, zoomSnap: 0.5 }, function () { if (data) fitBox(false); });
     compGroup.addTo(map); roomGroup.addTo(map); leverGroup.addTo(map);
     coordsReadout(map, $('mp-coords'), function (x, z) { return 'x ' + x + '  ·  y ' + (floorY == null ? '?' : floorY) + '  ·  z ' + z; });
 
@@ -325,7 +375,7 @@
         data = j;
         if (!data.floors.length) {
           $('mp-status').innerHTML = '<span class="spinner"></span> Cutting floor plans…';
-          $('mp-lever').innerHTML = '<h3 class="mp-h">Lever</h3><p class="muted" style="margin:0">The floor plans for this area are being made from the save. This takes a minute the first time.</p>';
+          $('mp-lever').innerHTML = '<p class="muted" style="margin:0">The floor plans for this area are being made from the save. This takes a minute the first time.</p>';
           setTimeout(function () { load(false); }, 6000);
           return;
         }
@@ -333,13 +383,14 @@
           var want = Number((location.hash.match(/y=(-?\d+)/) || [])[1]);
           floorY = floors().indexOf(want) >= 0 ? want : pickStartFloor();
         }
-        if (first) {
-          var b = data.box;
-          map.fitBounds([P(b.from[0], b.from[2]), P(b.to[0] + 1, b.to[2] + 1)], { animate: false });
-        }
+        if (first) fitBox(true);
         if (selKey && !data.comps.some(function (r) { return key(r) === selKey; })) selKey = null;
-        status(); tabs(); draw();
+        status(); tabs(); layoutCols(); draw();
       });
+    }
+    function fitBox(instant) {
+      var b = data.box;
+      map.fitBounds([P(b.from[0], b.from[2]), P(b.to[0] + 1, b.to[2] + 1)], { animate: !instant, paddingTopLeft: [12, PHONE ? 170 : 130], paddingBottomRight: [sidePad(map), 12] });
     }
     function pickStartFloor() {
       // the floor with the most levers, else the busiest one
@@ -351,8 +402,8 @@
       var el = $('mp-status');
       el.className = 'mp-status';
       el.textContent = data.live ? 'Live from the server · ' + data.comps.length + ' parts' : 'From the last save · ' + ago(data.generated_at);
-      $('mp-live').textContent = data.live ? 'Power levels are live' : 'Server offline or area not loaded: showing the last save';
-      $('mp-snap').textContent = 'Plans from the world save · ' + ago(data.generated_at);
+      $('mp-live').textContent = (data.live ? 'Live power' : 'Last save') + ' · plans ' + ago(data.generated_at);
+
     }
     function tabs() {
       $('mp-floors').innerHTML = data.floors.map(function (f) {
@@ -473,18 +524,18 @@
       var k = b.getAttribute('data-k'); pick(k);
       var p = k.split(',').map(Number); map.panTo(P(p[0] + 0.5, p[2] + 0.5));
     });
-    function pick(k) { selKey = selKey === k ? null : k; draw(); }
+    function pick(k) { selKey = selKey === k ? null : k; if (selKey) openCard('lever'); draw(); }
     function leverPanel() {
       var el = $('mp-lever');
       var r = selKey ? data.comps.filter(function (c) { return key(c) === selKey; })[0] : null;
       if (!r) {
-        el.innerHTML = '<h3 class="mp-h">Lever</h3><p class="muted" style="margin:0">' + (levers(true).length ? 'Pick a lever on the plan or in the switchboard to trace what it powers.' : 'No levers in this area.') + '</p>';
+        el.innerHTML = '<p class="muted" style="margin:0">' + (levers(true).length ? 'Pick a lever on the plan or in the switchboard to trace what it powers.' : 'No levers in this area.') + '</p>';
         return;
       }
       var cnt = { w: 0, L: 0, K: 0, D: 0, r: 0, t: 0, other: 0 };
       if (net) data.comps.forEach(function (c) { if (net[key(c)] && key(c) !== selKey) { if (cnt[c[3]] !== undefined) cnt[c[3]]++; else cnt.other++; } });
       var fl = data.floors.filter(function (f) { return f.y === bucket(r[1]); })[0];
-      var h = '<h3 class="mp-h">Lever</h3><div class="mp-chips"><span class="mp-pill' + (r[4] ? ' on' : '') + '">' + (r[4] ? 'ON' : 'OFF') + '</span><span class="mp-hint">' + r[0] + ', ' + r[1] + ', ' + r[2] + '</span></div>' +
+      var h = '<div class="mp-chips"><span class="mp-pill' + (r[4] ? ' on' : '') + '">' + (r[4] ? 'ON' : 'OFF') + '</span><span class="mp-hint">' + r[0] + ', ' + r[1] + ', ' + r[2] + '</span></div>' +
         '<h4 style="margin:.5rem 0 .25rem">' + esc(leverName(r)) + '</h4>' +
         '<p style="color:#b9c1cc;margin:0 0 .7rem">' + (fl ? esc(fl.name) + '. ' : '') + 'Traced from the blocks it touches: the highlighted wire, lamps, doors and pistons are what this lever drives.</p>' +
         '<div class="mp-stats"><div><b>' + cnt.w + '</b><span>wire</span></div><div><b>' + cnt.L + '</b><span>lamps</span></div><div><b>' + (cnt.K + cnt.D) + '</b><span>pistons, doors</span></div></div>';
