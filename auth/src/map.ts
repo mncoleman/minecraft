@@ -17,7 +17,7 @@
 // components are left out of the redstone layer.
 import type { Hono, Context } from "hono";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { db, type User } from "./db.ts";
 import { config } from "./config.ts";
@@ -142,6 +142,7 @@ function vec3(v: unknown, what: string): V3 {
   if (!Array.isArray(v) || v.length !== 3) throw new Error(`${what} must be [x, y, z].`);
   return [int(v[0], what + " x"), yv(v[1], what + " y"), int(v[2], what + " z")];
 }
+export function truthy(v: unknown): boolean { return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true"; }
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "feature";
 }
@@ -215,9 +216,18 @@ function cleanFields(a: FeatureInput, partial: boolean): Record<string, any> {
       o.__labels.levers = src === null ? undefined : lv;
     }
   }
-  if (a.secret !== undefined) o.secret = a.secret ? 1 : 0;
+  if (a.secret !== undefined) o.secret = truthy(a.secret) ? 1 : 0;
   if (a.underground !== undefined) o.underground = a.underground ? 1 : 0;
   return o;
+}
+/** A box with floors gets sliced: keep it to something the renderer handles fast. */
+function checkArea(box: { from: V3; to: V3 } | null, floors: unknown, srv: ServerId, mv: string, selfId?: string): void {
+  if (!box || !floors) return;
+  const dx = box.to[0] - box.from[0] + 1, dy = box.to[1] - box.from[1] + 1, dz = box.to[2] - box.from[2] + 1;
+  if (dx > 256 || dz > 256) throw new Error("An area with floor plans can be at most 256 x 256 blocks. Split it into parts.");
+  if (dx * dy * dz > 3_000_000) throw new Error(`An area with floor plans can hold at most 3 million blocks (this one is ${dx} x ${dy} x ${dz}). Trim its height or split it.`);
+  const n = listFeatures(srv, mv, true).filter((f) => f.box && f.floors && f.id !== selfId).length;
+  if (n >= 40) throw new Error("This world already has 40 areas with floor plans.");
 }
 function anchorFrom(o: Record<string, any>, cur?: Feature | null): void {
   // A feature always gets an anchor (where its marker sits): pos, else the box
@@ -231,6 +241,7 @@ function anchorFrom(o: Record<string, any>, cur?: Feature | null): void {
 }
 export function addFeature(srv: ServerId, mv: string, a: FeatureInput, actor: string | null, note?: string): Feature {
   const o = cleanFields(a, false);
+  checkArea(o.box ? JSON.parse(o.box) : null, o.floors, srv, mv);
   anchorFrom(o);
   if (o.x === undefined || o.x === null) throw new Error("Give the feature a position: pos [x,y,z], a box, or points.");
   const base = slugify(String(a.slug ?? o.name));
@@ -249,13 +260,14 @@ export function addFeature(srv: ServerId, mv: string, a: FeatureInput, actor: st
     [id, srv, mv, slug, o.kind, o.name, o.detail ?? "", o.status ?? "", o.x ?? null, o.y ?? null, o.z ?? null, o.points ?? null, o.box ?? null, o.floors ?? null, labels, o.secret ?? 0, o.underground ?? 0, actor, t, t]);
   const f = getFeature(srv, mv, id)!;
   logUpdate(f, "add", f.name, note || `Added ${KINDS[f.kind].label.toLowerCase()}${f.detail ? ": " + f.detail : "."}`, actor);
-  if (f.box && f.floors) touchArea(srv, mv);
+  if ((f.box && f.floors) || f.secret) touchArea(srv, mv, f.secret);
   return f;
 }
 export function updateFeature(srv: ServerId, mv: string, idOrSlug: string, a: FeatureInput, actor: string | null, note?: string): Feature {
   const cur = getFeature(srv, mv, idOrSlug);
   if (!cur) throw new Error(`No feature '${idOrSlug}' in ${mv}.`);
   const o = cleanFields(a, true);
+  checkArea(o.box !== undefined ? (o.box ? JSON.parse(o.box) : null) : cur.box, o.floors !== undefined ? o.floors : cur.floors, srv, mv, cur.id);
   if (o.__labels) {
     const merged = { ...(cur.labels || {}) } as any;
     for (const k of Object.keys(o.__labels)) { if (o.__labels[k] === undefined) delete merged[k]; else merged[k] = o.__labels[k]; }
@@ -271,10 +283,11 @@ export function updateFeature(srv: ServerId, mv: string, idOrSlug: string, a: Fe
   if (!cols.length) return cur;
   db.run(`UPDATE map_features SET ${cols.map((k) => `${k} = ?`).join(", ")}, updated_at = ? WHERE id = ?`, [...cols.map((k) => o[k]), now(), cur.id]);
   const f = getFeature(srv, mv, cur.id)!;
+  if (f.secret !== cur.secret) db.run("UPDATE map_updates SET secret = ? WHERE feature_id = ?", [f.secret ? 1 : 0, f.id]); // its history follows it
   const changed = cols.filter((k) => k !== "labels").map((k) => (k === "x" || k === "z" ? "position" : k === "y" ? "" : k)).filter(Boolean);
   if (o.labels) changed.push("labels");
   logUpdate(f, "update", f.name, note || `Updated ${[...new Set(changed)].join(", ")}.`, actor);
-  if ((f.box && f.floors) || (cur.box && cur.floors) || f.secret || cur.secret) touchArea(srv, mv);
+  if ((f.box && f.floors) || (cur.box && cur.floors) || f.secret || cur.secret) touchArea(srv, mv, f.secret || cur.secret);
   return f;
 }
 export function removeFeature(srv: ServerId, mv: string, idOrSlug: string, actor: string | null, note?: string): Feature {
@@ -282,11 +295,21 @@ export function removeFeature(srv: ServerId, mv: string, idOrSlug: string, actor
   if (!cur) throw new Error(`No feature '${idOrSlug}' in ${mv}.`);
   db.run("DELETE FROM map_features WHERE id = ?", [cur.id]);
   logUpdate(cur, "remove", cur.name, note || "Removed from the map.", actor);
-  if (cur.secret) touchArea(srv, mv);
+  if (cur.secret || (cur.box && cur.floors)) touchArea(srv, mv, cur.secret);
   return cur;
 }
-/** Something that shapes an area's slice changed: re-slice soon. */
-function touchArea(srv: ServerId, mv: string): void { setTimeout(() => enqueue(srv, mv, "feature change"), 1500); }
+/** Something that shapes an area's slice changed: re-slice soon. When a secret
+ *  changed, drop every public floor plan of the world right now, so no plan cut
+ *  before the secret existed is served until the re-slice paints it over. */
+function touchArea(srv: ServerId, mv: string, secretChanged = false): void {
+  if (secretChanged) {
+    for (const f of areaFeatures(srv, mv)) {
+      const dir = `${outDir(srv, mv)}/areas/${f.id}`;
+      try { for (const n of readdirSync(dir)) if (/_pub\.png$/.test(n)) unlinkSync(`${dir}/${n}`); writeFileSync(`${dir}/spec.json`, ""); } catch { /* not sliced yet */ }
+    }
+  }
+  setTimeout(() => enqueue(srv, mv, "feature change"), 1500);
+}
 
 // ── who may see / do what ────────────────────────────────────────────────────
 interface Viewer { sub: string; username: string; admin: boolean; siteOwner: boolean }
@@ -494,7 +517,7 @@ async function areaComponents(srv: ServerId, mv: string, f: Feature, withSecret:
   if (disk.length && SERVERS[srv].modern) {
     const key = f.id;
     const hit = liveCache.get(key);
-    if (!fresh && hit && Date.now() - hit.at < 3000 && hit.states.length === disk.length) { states = hit.states.map((s, i) => s ?? disk[i][3]); live = hit.loaded > 0; loaded = hit.loaded; }
+    if (!fresh && hit && Date.now() - hit.at < 3000 && hit.states.length === Math.min(disk.length, 6000)) { states = disk.map((d, i) => hit.states[i] ?? d[3]); live = hit.loaded > 0; loaded = hit.loaded; }
     else {
       try {
         const r = await plugin("/states", { world: mv, positions: disk.slice(0, 6000).map((d) => [d[0], d[1], d[2]]) }, 8000, srv);
@@ -548,11 +571,14 @@ export const MAP_TOOL = {
     required: ["action", "world"],
   },
 };
-function featureOut(f: Feature) {
+function featureOut(f: Feature, masks: Array<{ from: V3; to: V3 }> = []) {
+  const hide = (x: number, y: number | undefined, z: number) => masks.some((m) => inBox(x, y ?? (f.box ? f.box.from[1] : 0), z, m));
+  const rooms = f.labels?.rooms?.filter((r) => !hide(r.x, r.y, r.z));
+  const levers = f.labels?.levers ? Object.fromEntries(Object.entries(f.labels.levers).filter(([k]) => { const [x, y, z] = k.split(",").map(Number); return !hide(x, y, z); })) : undefined;
   return {
     id: f.slug, kind: f.kind, name: f.name, detail: f.detail || undefined, status: f.status || undefined,
     pos: f.x !== null ? [f.x, f.y, f.z] : undefined, points: f.points || undefined, box: f.box || undefined,
-    floors: f.floors || undefined, rooms: f.labels?.rooms, levers: f.labels?.levers,
+    floors: f.floors || undefined, rooms, levers,
     secret: f.secret || undefined, underground: f.underground || undefined, updated_at: new Date(f.updated_at * 1000).toISOString(),
   };
 }
@@ -567,14 +593,14 @@ export async function mapTool(u: User, srv: ServerId, mv: string, a: any): Promi
     if (a?.filter_kind) fs = fs.filter((f) => f.kind === String(a.filter_kind));
     const ms = mapWorld(srv, mv);
     return {
-      world: mv, server: serverLabel(srv), features: fs.map(featureOut),
+      world: mv, server: serverLabel(srv), features: fs.map((f) => featureOut(f, priv ? [] : secretMasks(srv, mv))),
       recent: recentUpdates(srv, mv, priv, 8).map((r) => ({ id: r.slug, action: r.action, title: r.title, what: r.what, by: r.actor, at: new Date(r.at * 1000).toISOString() })),
       terrain: ms ? { status: ms.status, rendered_at: ms.rendered_at ? new Date(ms.rendered_at * 1000).toISOString() : null } : "not mapped yet (adding a feature turns the map on)",
       page: `${config.publicBaseUrl}/map/${srv}/${mv}`,
       note: priv ? undefined : "Secret passages are only listed for the world's owner and admins.",
     };
   }
-  const touchesSecret = (f: Feature | null) => !!f?.secret || a?.secret === true;
+  const touchesSecret = (f: Feature | null) => !!f?.secret || (a?.secret !== undefined && truthy(a.secret));
   if (action === "add") {
     if (touchesSecret(null) && !priv) throw new Error("Only the world's owner or an admin can add secret passages.");
     const f = addFeature(srv, mv, { ...a, slug: a?.id }, u.username, a?.note ? String(a.note) : undefined);
@@ -655,6 +681,9 @@ export function mountMap(app: Hono): void {
   app.get("/map/assets/map.js", asset(PUB + "map.js", "text/javascript; charset=utf-8"));
   app.get("/map/assets/map.css", asset(PUB + "map.css", "text/css; charset=utf-8"));
 
+  // Must come before /map/:srv/:world, which would otherwise swallow it.
+  app.get("/map/api/ack", (c) => c.json({ msg: c.req.query("msg") || null, err: c.req.query("err") || null }, 200, NO_STORE));
+
   app.get("/map", async (c) => {
     const v = await viewer(c); if (!v) return c.redirect("/login");
     const list = mapWorldsList();
@@ -718,7 +747,6 @@ ${pageHead({ title: esc(f.name), sub: "Floor by floor, from the save file. Every
   });
 
   // ── JSON: world map ──
-  app.get("/map/api/ack", (c) => c.json({ msg: c.req.query("msg") || null, err: c.req.query("err") || null }, 200, NO_STORE));
   app.get("/map/api/:srv/:world", async (c) => {
     const v = await viewer(c); if (!v) return jsonErr(c, 401, "Sign in first.");
     const ww = worldFromParams(c);
@@ -748,6 +776,7 @@ ${pageHead({ title: esc(f.name), sub: "Floor by floor, from the save file. Every
     const { srv, mv, w } = ww;
     const priv = privileged(v, w);
     if (rateLimited(`maprender:${v.sub}`, priv ? 6 : 2, 300)) return jsonErr(c, 429, "Give it a few minutes before asking again.");
+    if (!priv && !mapWorld(srv, mv)?.enabled) return jsonErr(c, 403, "Only the world's owner or an admin can turn on the map for a world. Ask them to hit Map this world.");
     const force = priv && c.req.query("force") === "1";
     if (priv && SERVERS[srv].modern) { try { await rcon("save-all", 8000, srv); await new Promise((r) => setTimeout(r, 2500)); } catch { /* render the last autosave */ } }
     enqueue(srv, mv, `requested by ${v.username}`, force);
@@ -771,7 +800,7 @@ ${pageHead({ title: esc(f.name), sub: "Floor by floor, from the save file. Every
     const priv = privileged(v, w);
     const f = getFeature(srv, mv, c.req.param("fid"));
     if (!f || (f.secret && !priv) || !f.box || !f.floors) return jsonErr(c, 404, "No such area.");
-    const ac = await areaComponents(srv, mv, f, priv, c.req.query("fresh") === "1");
+    const ac = await areaComponents(srv, mv, f, priv, priv && c.req.query("fresh") === "1");
     const names = new Map((Array.isArray(f.floors) ? f.floors : []).map((x) => [x.y, x.name]));
     const floorsY: number[] = ac.meta?.floors ?? (Array.isArray(f.floors) ? f.floors.map((x) => x.y) : []);
     const ver = ac.generated_at ?? 0;
