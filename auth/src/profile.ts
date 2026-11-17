@@ -40,7 +40,7 @@ function profilePage(u: User, msg?: string, err?: string): string {
     <h2>Account</h2>
     <div class="card">
       <table>
-        <tr><td>In-game username</td><td><b>${esc(u.username)}</b><div class="hint">Set this exact name in the game (Main Menu, then Edit Profile, then Username) or you'll be asked to. You can change it below.</div></td></tr>
+        <tr><td>In-game username</td><td><b>${esc(u.username)}</b><div class="hint">Set this exact name in the game (Main Menu, then Edit Profile, then Username) or you'll be asked to. ${owner ? "As the server owner your username is locked, because your in-game operator rights are tied to it." : "You can change it below."}</div></td></tr>
         <tr><td>Email</td><td>${u.email ? esc(u.email) + verifyBadge : '<span class="hint">—</span>'}</td></tr>
         <tr><td>Role</td><td><span class="${roleBadge}">${esc(role)}</span></td></tr>
         <tr><td>Sign-in methods</td><td class="hint">${esc(links)}</td></tr>
