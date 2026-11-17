@@ -21,6 +21,16 @@ export interface Release {
 export const CHANGELOG: Release[] = [
   {
     date: "2026-11-17",
+    title: "A Map tab for every world",
+    items: [
+      "New Map tab (shortcut M): each world drawn from its save in real Minecraft map colours. Zoom from the whole world down to single blocks.",
+      "Walls, towers, gates, buildings, rail lines, planned work and keep-clear zones sit on top, and Claude keeps them up to date as it builds. Turn layers on and off, and tap anything for details, a teleport or to save it as a place.",
+      "Areas like the fortress open floor by floor: every wire, lamp, piston, door, trap and rail where it sits, with live power. Pick a lever to see what it powers. World owners can flip it from the map and it flips in the game.",
+      "Terrain refreshes every 10 minutes, or hit Render now.",
+    ],
+  },
+  {
+    date: "2026-11-17",
     title: "One Command Center that follows you",
     items: [
       "New Command tab (shortcut T): it finds the world you're standing in, on 1.8 or 26, and runs game mode, time, weather, teleports and items there. No more opening each world's own page.",

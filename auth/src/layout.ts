@@ -389,7 +389,7 @@ export function feedbackWidget(): string {
 
 interface ShellOpts {
   title: string;
-  active: string; // play | worlds | command | friends | claude | admin | guide | feedback | profile
+  active: string; // play | worlds | map | command | friends | claude | admin | guide | feedback | profile
   username: string;
   admin: boolean;
   body: string;
@@ -430,7 +430,7 @@ export function shell(o: ShellOpts): string {
     ? ' <span class="dot on pulse" title="You have new friend requests" style="margin:0 0 0 .35rem"></span>'
     : "");
   // Single-key nav shortcuts (ignored while typing). 'a' only for admins.
-  const navKeys: Record<string, string> = { w: "/worlds", t: "/command", f: "/friends", c: "/claude", g: "/help", b: "/feedback", p: "/profile", y: "/" };
+  const navKeys: Record<string, string> = { w: "/worlds", m: "/map", t: "/command", f: "/friends", c: "/claude", g: "/help", b: "/feedback", p: "/profile", y: "/" };
   if (o.admin) navKeys.a = "/admin";
   Object.assign(navKeys, o.keys || {});
   return `<!doctype html><html lang="en"><head>
@@ -444,6 +444,7 @@ export function shell(o: ShellOpts): string {
     <div class="sect">Play</div>
     ${tab("play", "/", "Home", "home", "Y")}
     ${tab("worlds", "/worlds", "Worlds", "globe", "W")}
+    ${tab("map", "/map", "Map", "map", "M")}
     ${tab("command", "/command", "Command", "terminal", "T")}
     ${tab("friends", "/friends", friendsLabel, "users", "F")}
     ${tab("claude", "/claude", "Claude", "sparkles", "C")}

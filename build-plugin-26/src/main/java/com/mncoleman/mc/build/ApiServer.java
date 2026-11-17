@@ -32,6 +32,8 @@ import java.util.concurrent.TimeUnit;
  *   POST /undo   {id, actor, wait_ms}         → undo job status
  *   POST /say    {message}
  *   POST /cancel {}
+ *   POST /states {world, positions:[[x,y,z],...]} → current block state per position (null = chunk not loaded)
+ *   POST /lever  {world, pos, powered?}          → flip a lever exactly like a player click (redstone updates)
  */
 public final class ApiServer {
     private static final int MAX_BODY = 8 * 1024 * 1024;
@@ -75,6 +77,8 @@ public final class ApiServer {
                 case "/rail_plan": out = railPlan(body); break;
                 case "/rail_build": out = railBuild(body); break;
                 case "/rail_verify": out = railVerify(body); break;
+                case "/states": out = Levers.states(plugin, body); break;
+                case "/lever": out = Levers.flip(plugin, body); break;
                 case "/cancel": out = sync(() -> { JsonObject o = new JsonObject(); o.addProperty("cancelled", plugin.jobs().cancelCurrent()); return o; }); break;
                 default: send(ex, 404, err("not found")); return;
             }

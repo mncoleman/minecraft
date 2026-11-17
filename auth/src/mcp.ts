@@ -7,7 +7,6 @@
 // WHAT, WHERE (build rights = owner, shared member, or the open lobby).
 import type { Hono, Context } from "hono";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { db, type User } from "./db.ts";
 import { config } from "./config.ts";
 import { currentSession, rateLimited, clientIp } from "./session.ts";
@@ -18,6 +17,8 @@ import { SERVERS, enabledServers, isEnabled, parseServer, serverLabel, type Serv
 import { listFriends, incomingRequests, outgoingRequests, visibleOnlineUsernames } from "./friends.ts";
 import { shell, icon, pageHead, tiles } from "./layout.ts";
 import { rcon, stripColor } from "./rcon.ts";
+import { plugin } from "./buildapi.ts";
+import { mapTool, MAP_TOOL } from "./map.ts";
 import {
   getWorldByMv, isLobby, listWorldsOwnedBy, listWorldsSharedWith,
   listSavedLocations, saveLocation, sanitizeWorldName, LOBBY_MV,
@@ -72,35 +73,6 @@ const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 function esc(s: string): string {
   return (s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
-}
-
-// Each server runs its own ClaudeBuild plugin (build-plugin/ on 1.8, build-plugin-26/
-// on 26), which generates its token into its own config.yml on that server's
-// game-data mount; read it lazily (and re-read on 401, in case it regenerated).
-const buildTokens: Record<ServerId, string | null> = { "18": null, "26": null };
-function readBuildToken(srv: ServerId): string | null {
-  try {
-    const y = readFileSync(`${SERVERS[srv].gamedataDir}/plugins/ClaudeBuild/config.yml`, "utf8");
-    const m = y.match(/^api-token:\s*['"]?([0-9a-f]{32,})['"]?\s*$/m);
-    return m ? m[1] : null;
-  } catch { return null; }
-}
-async function plugin(path: string, body: unknown, timeoutMs = 30000, srv: ServerId = "18"): Promise<any> {
-  if (!isEnabled(srv)) throw new Error(`The ${serverLabel(srv)} server isn't set up.`);
-  if (!buildTokens[srv]) buildTokens[srv] = readBuildToken(srv);
-  if (!buildTokens[srv]) throw new Error(`ClaudeBuild isn't installed on the ${serverLabel(srv)} server or hasn't started yet.`);
-  const url = `http://${SERVERS[srv].host}:${SERVERS[srv].buildPort}`;
-  const call = () => fetch(url + path, {
-    method: "POST",
-    headers: { Authorization: "Bearer " + buildTokens[srv], "Content-Type": "application/json" },
-    body: JSON.stringify(body ?? {}),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  let r = await call();
-  if (r.status === 401) { buildTokens[srv] = readBuildToken(srv); r = await call(); }
-  const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
-  if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-  return j;
 }
 
 // ── auth ─────────────────────────────────────────────────────────────────────
@@ -431,6 +403,7 @@ const TOOLS = [
     description: "Server owner only. Run a console command and get its output. 1.8 server (1.12 syntax): time, weather, gamerule (common gameplay rules), gamemode, tp/teleport, execute <player> ~ ~ ~ locate <Structure>, give, replaceitem (block, or yourself), clear/spawnpoint (yourself), effect, enchant, xp, summon (mobs, armor stands, minecarts, boats, fireworks — no NBT), kill @e[type=<mob>,r=<1-64>,x=..,y=..,z=..] (mobs only), list, seed, mv list/who/info, say/tell. 26 server (modern syntax): time, weather, gamerule, gamemode, tp, give, clear, effect give/clear, enchant, xp/experience add|set, summon <mob> (no bosses/TNT), kill @e[type=<mob>,x=..,y=..,z=..,distance=..N] (N ≤ 64), execute as <player> at @s run minecraft:locate structure|biome <id> (e.g. #minecraft:village), list, seed, mv list/who/info, say, tell/msg. Difficulty: use command_center. No leading slash. Block edits go through `build` (undo + build rights); container contents through `container`. Server-admin commands (stop, op, ban, permissions, world deletion…) are refused.",
     inputSchema: { type: "object", properties: { command: { type: "string" }, server: serverProp }, required: ["command"] },
   },
+  MAP_TOOL,
 ];
 
 const INSTRUCTIONS = `You are building in a private Minecraft network together with the signed-in player. There are TWO separate servers and worlds never move between them:
@@ -440,6 +413,7 @@ Every world tool takes an optional server ('1.8' or '26'). When omitted it uses 
 You have a visible body in the game — a player named "Claude" (gold helmet, gold pickaxe). It shows up by the work while your builds run, and you can bring it out any time with the avatar tool (appear, follow, walk_to, look_at, hide). Use it with say to be present with the player: greet them, walk to where you'll build, follow them while you talk.
 Axes: x increases EAST, z increases SOUTH, y is up (ground is usually y 60-80 on 1.8; on 26 it varies more, always scan). Yaw 0 = facing south, 90 = west, 180 = north, 270 = east.
 For any minecart line, use plan_rail then build_rail — never hand-place track.
+Keep the panel's Map tab current with the map tool: whenever you finish building or changing a wall, tower, gate, building, passage (secret: true for hidden ones), rail line or an area with floors, add or update it there, and mark planned work and keep-clear zones.
 You can also do everything the player can in the panel: list_worlds, create_world, share_world, hop, notes, save_place/manage_place, friends, command_center, container (fill dispensers/chests), and read_chat (plus a live chat feed — see read_chat).
 Workflow that works: (1) get_status to see which server and world the player is in and which worlds you may build in; (2) resolve named places with list_places (or run_command: on 1.8 'execute <player> ~ ~ ~ locate Village', on 26 'execute as <player> at @s run minecraft:locate structure #minecraft:village' (use the minecraft: prefix — a plugin shadows bare locate)); (3) scan heightmap over the area to find the real ground y — never guess; (4) build in stages with clear labels; (5) scan blocks to verify each stage, fix with another build or undo. Tell the player in chat (say) what you're doing.
 Minecarts: rails need a solid block under them; max grade is 1 up per 1 across (1.8: rail data 2-5 ramps; 26: shape=ascending_east|west|north|south); powered rails ("golden_rail") only push when powered — put a redstone_block or redstone_torch under/next to them; one source powers up to 8 rails each way. Flat track: a powered rail every ~30 blocks keeps full speed; uphill: every 2-4 blocks. Unpowered powered rails BRAKE carts. Put a solid stop block at track ends; a station = powered rail against the stop block with a button or redstone_block. Powered rails can't curve; curves use plain rails.`;
@@ -466,6 +440,11 @@ async function callTool(caller: Caller, name: string, a: any): Promise<ToolResul
   const u = caller.user;
   try {
     switch (name) {
+      case "map": {
+        const mv = worldArg(a);
+        const srv = await resolveServer(u, a, mv);
+        return ok(await mapTool(u, srv, mv, a));
+      }
       case "get_status": {
         const target = a?.player ? String(a.player) : u.username;
         if (!canSeePlayer(u, target)) return fail(`You can only look up yourself, your friends, and people you share a world with.`);

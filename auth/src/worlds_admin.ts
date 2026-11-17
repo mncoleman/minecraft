@@ -608,6 +608,7 @@ function consolePage(w: World, meCtx: { sub: string; username: string; admin: bo
 
 /** Where a Command Center form goes back to: the global page or the world's. */
 function ccBack(w: World, form: Record<string, unknown>): string {
+  if (form.from === "map") return "/map/api/ack"; // the Map tab calls these routes over fetch and reads the JSON ack
   return form.from === "command" ? "/command" : `/worlds/${w.id}/console`;
 }
 

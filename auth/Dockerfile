@@ -2,7 +2,8 @@
 FROM oven/bun:1-slim
 
 # unzip + find: needed for world-zip uploads (extract + locate level.dat).
-RUN apt-get update && apt-get install -y --no-install-recommends unzip findutils \
+# python3: the Map tab's renderers (map/*.py) read region files into tiles.
+RUN apt-get update && apt-get install -y --no-install-recommends unzip findutils python3 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

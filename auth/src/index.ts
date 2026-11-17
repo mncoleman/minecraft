@@ -17,6 +17,7 @@ import { mountFriends } from "./friends.ts";
 import { mountChangelog } from "./changelog.ts";
 import { mountFeedback } from "./feedback.ts";
 import { mountMcp } from "./mcp.ts";
+import { mountMap, startMapRenderer } from "./map.ts";
 import { reconcile, bootstrapWorlds } from "./worlds.ts";
 import { startHopAutoRoute, startLocationLogger } from "./presence.ts";
 import { startTelegramNotifications } from "./telegram_notify.ts";
@@ -94,6 +95,7 @@ mountFriends(app);
 mountChangelog(app);
 mountFeedback(app);
 mountMcp(app);
+mountMap(app);
 
 // Public branding asset for transactional emails (email clients fetch it with no
 // cookie, so it must be ungated). Served from the baked-in public/ dir.
@@ -132,6 +134,9 @@ startHopAutoRoute();
 
 // Location logger: record online players' positions for the command center.
 startLocationLogger();
+
+// Map tab: re-render mapped worlds' terrain + area floor plans every 10 minutes.
+startMapRenderer();
 
 // Owner-only Telegram presence notifications (no-op unless the bot env is set).
 startTelegramNotifications();
