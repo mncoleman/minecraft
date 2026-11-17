@@ -64,7 +64,7 @@ services:
       # Small private server defaults — tune in server.properties after first run.
       MAX_PLAYERS: "20"
       MODE: "creative"            # default gamemode (per-world overrides come with Multiverse)
-      OPS: "Matthew"              # owner = operator (full in-game admin)
+      OPS: "3c22628f-78fc-3153-b588-6c5707ba00e8"  # owner's offline-mode UUID (= OfflinePlayer:Matthew). A UUID, not a name: a name gets resolved to the Mojang account ID, which never matches in offline mode, and would follow the name after a rename.
       DIFFICULTY: "normal"
       MOTD: "mncoleman private server"
       ONLINE_MODE: "FALSE"      # Eaglercraft has no Mojang auth; identity is

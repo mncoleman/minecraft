@@ -53,7 +53,7 @@ services:
       USE_AIKAR_FLAGS: "true"
       MAX_PLAYERS: "20"
       MODE: "creative"
-      OPS: "Matthew"
+      OPS: "3c22628f-78fc-3153-b588-6c5707ba00e8"  # owner's offline-mode UUID; see server/docker-compose.yml
       DIFFICULTY: "normal"
       MOTD: "mncoleman private server (26)"
       ONLINE_MODE: "FALSE"      # identity is enforced by the JWT plugin
