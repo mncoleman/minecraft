@@ -10,7 +10,7 @@ import {
   isLobby, provisionWorld, shareWorld, unshareWorld, reassignWorldOwner, deleteWorld, isProtectedWorld, teleportTo, setPendingDestination,
   getNote, saveNote, getLocation, fetchWorldSeed, readMvWorld, liveWorldExists,
   recordTeleport, recentTeleports, listSavedLocations, saveLocation, updateSavedLocation, deleteSavedLocation,
-  createWorldCommand, difficultyCommand,
+  createWorldCommand, difficultyCommand, tpCoordsCommand,
 } from "./worlds.ts";
 import { getPresence, serverOfPlayer, type OnlinePlayer } from "./presence.ts";
 import { SERVERS, enabledServers, isEnabled, parseServer, serverLabel, type ServerId } from "./servers.ts";
@@ -942,7 +942,7 @@ export function mountWorlds(app: Hono): void {
         case "tp_coords": {
           if (!inWorld) return back("err=" + encodeURIComponent(`Stand in ${w.mv_world_name} first (you're in ${meOn.world}).`));
           const x = intArg(form.x), y = intArg(form.y), z = intArg(form.z);
-          command = `tp ${m.username} ${x} ${y} ${z}`;
+          command = tpCoordsCommand(m.username, meOn.world, x, y, z, srv);
           dest = { world: meOn.world, x: +x, y: +y, z: +z, label: "" };
           break;
         }
@@ -960,7 +960,7 @@ export function mountWorlds(app: Hono): void {
             if (!loc) return back("err=" + encodeURIComponent(`No known location for ${target} on this server yet.`));
             if (!mayEnter(loc.world)) return noEntry(loc.world);
             if (loc.world !== meOn.world) await teleportTo(m.username, loc.world, srv);
-            command = `tp ${m.username} ${loc.x} ${loc.y} ${loc.z}`;
+            command = tpCoordsCommand(m.username, loc.world, loc.x, loc.y, loc.z, srv);
             dest = { world: loc.world, x: loc.x, y: loc.y, z: loc.z, label: "→ " + target, targetUserId: tuid };
           }
           break;
@@ -971,7 +971,7 @@ export function mountWorlds(app: Hono): void {
           if (!mayEnter(world)) return noEntry(world);
           const x = intArg(form.x), y = intArg(form.y), z = intArg(form.z);
           if (meOn.world !== world) await teleportTo(m.username, world, srv);
-          command = `tp ${m.username} ${x} ${y} ${z}`;
+          command = tpCoordsCommand(m.username, world, x, y, z, srv);
           dest = { world, x: +x, y: +y, z: +z, label: String(form.label ?? "").slice(0, 40) };
           break;
         }

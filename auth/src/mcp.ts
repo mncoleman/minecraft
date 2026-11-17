@@ -21,7 +21,7 @@ import { rcon, stripColor } from "./rcon.ts";
 import {
   getWorldByMv, isLobby, listWorldsOwnedBy, listWorldsSharedWith,
   listSavedLocations, saveLocation, sanitizeWorldName, LOBBY_MV,
-  listAllWorlds, sharesForWorld, getNote,
+  listAllWorlds, sharesForWorld, getNote, dimensionKey,
 } from "./worlds.ts";
 
 // ── acting as the player through the panel's own routes ──────────────────────
@@ -749,7 +749,14 @@ async function callTool(caller: Caller, name: string, a: any): Promise<ToolResul
         if (self && (self[2] ?? self[1]).toLowerCase() !== u.username.toLowerCase()) return fail(`That command can only target you (${u.username}).`);
         const srv = await resolveServer(u, a);
         if (!commandAllowed(cmd, srv)) return fail(`Not on the allowed list for the ${serverLabel(srv)} server (see the tool description). To change blocks use \`build\`; to fill containers use \`container\`.`);
-        const out = stripColor(await rcon(cmd, 10000, srv)).trim();
+        let run = cmd;
+        // A console `tp <player> x y z` on 26 lands in the lobby's dimension; keep the player in their own world.
+        const tpm = SERVERS[srv].modern ? cmd.match(/^(?:tp|teleport) (\S+) (\S+ \S+ \S+.*)$/i) : null;
+        if (tpm) {
+          const p = (await getPresence()).find((x) => x.server === srv && x.name.toLowerCase() === tpm[1].toLowerCase());
+          if (p) run = `execute in ${dimensionKey(p.world)} run ${cmd}`;
+        }
+        const out = stripColor(await rcon(run, 10000, srv)).trim();
         return ok(out || "(no output)");
       }
       default:

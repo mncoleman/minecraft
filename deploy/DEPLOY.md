@@ -200,6 +200,9 @@ Nothing here touches `mc-eagler`.
    `data/plugins/EaglercraftXServer/`: `listener.yml` → `forward_ip: true`,
    `forward_ip_header: 'X-Forwarded-For'`, `forward_secret: true`,
    `require_tls: false`; `settings.yml` → `enable_authentication_events: true`.
+   Multiverse: in `data/plugins/Multiverse-Core/config.yml` set
+   `enforce-gamemode: false` (as on 1.8), then `mv reload`. Otherwise every world
+   change forces the world's gamemode (all 26 worlds are survival).
 6. **Plugins**: `cd plugin && bash build.sh 26` (same EaglerJwtAuth jar as 1.8) and
    `cd build-plugin-26 && bash build.sh`; then `docker restart mc-eagler26`.
 7. **mc-auth**: add `-v /home/ubuntu/minecraft/server26/data:/gamedata26` to the run
@@ -221,5 +224,6 @@ Rollback: `docker compose -f server26/docker-compose.yml down` (keeps
 
 Command dialect differences the panel handles for 26: Multiverse 5
 (`mv create … --seed`, `mv modify <w> set difficulty`, `mv delete` → `mv confirm <otp>`,
-`mvtp … --unsafe`), `execute as <p> at @s run …`, and extra worlds live under
+`mvtp … --unsafe`), `execute as <p> at @s run …`, console `tp <p> x y z` wrapped in
+`execute in minecraft:<world> run` (a bare console tp lands in the lobby's dimension), and extra worlds live under
 `world/dimensions/minecraft/<name>`. Upload/Register stay 1.8-only.

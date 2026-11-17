@@ -325,6 +325,21 @@ export async function teleportTo(username: string, mv: string, srv: ServerId): P
   return out;
 }
 
+/** Console command that moves a player to exact coords IN a given world. On the
+ *  modern server a bare `tp <player> x y z` run over RCON lands in the console's
+ *  dimension (the lobby overworld), not the player's world — which also trips
+ *  Multiverse's world-change handling. Pin the dimension with `execute in`. */
+export function tpCoordsCommand(username: string, mv: string, x: number | string, y: number | string, z: number | string, srv: ServerId): string {
+  if (!SERVERS[srv].modern) return `tp ${username} ${x} ${y} ${z}`;
+  return `execute in ${dimensionKey(mv)} run tp ${username} ${x} ${y} ${z}`;
+}
+
+/** Dimension id of a Multiverse world on the modern server. */
+export function dimensionKey(mv: string): string {
+  const special: Record<string, string> = { world: "overworld", world_nether: "the_nether", world_the_end: "the_end" };
+  return "minecraft:" + (special[mv] ?? mv.toLowerCase());
+}
+
 /** Folder of a world on disk. 1.12: <data>/<mv>. 26.x: everything lives in the
  *  main save; extra Multiverse worlds sit under world/dimensions/minecraft/<mv>. */
 export function worldDir(mv: string, srv: ServerId): string {
