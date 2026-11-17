@@ -6,6 +6,14 @@ login, worlds, friends, and feedback; the game runs in a separate hardened
 container. See `README.md` for the full architecture and `deploy/DEPLOY.md` for
 the deploy/rollback runbook.
 
+## ⚠️ Live means pushed (ALWAYS follow this)
+
+Whatever is deployed to the box must be on `main` on GitHub. When you deploy
+from a branch, merge it into `main` and push in the same piece of work — never
+leave live code that exists only locally or on an unpushed branch. If a deploy
+is rolled back, push the rollback too. Push with the personal `mncoleman` gh
+account (`gh auth switch -u mncoleman`, then switch back).
+
 ## Panel feedback → GitHub issues
 
 The **Feedback** tab (`auth/src/feedback.ts`) lets any logged-in player send
