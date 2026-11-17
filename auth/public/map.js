@@ -273,7 +273,7 @@
         var m = L.marker(P(f.x + 0.5, f.z + 0.5), { icon: icon, title: f.name + ' (' + (f.kindLabel || f.kind) + ')', alt: f.name, keyboard: true, riseOnHover: true, zIndexOffset: isSel ? 1000 : 0 });
         m.on('click', pick);
         m.on('keypress', function (e) { if (e.originalEvent.key === 'Enter' || e.originalEvent.key === ' ') pick(); });
-        var labelOn = show.labels && (isSel || (isMajor(f) && z >= -1) || z >= 1);
+        var labelOn = show.labels && (isSel || (isMajor(f) && z >= -1) || z >= 2);
         if (labelOn) m.bindTooltip(esc(f.name), { permanent: true, direction: 'bottom', offset: [0, 10], className: 'mp-label' + (isSel ? ' sel' : '') });
         m.addTo(featureGroup); markers[f.id] = m;
       });
