@@ -137,7 +137,9 @@ final class Levers {
             Object pos = bpC.getConstructor(int.class, int.class, int.class).newInstance(support.getX(), support.getY(), support.getZ());
             Object state = findMethod(level.getClass(), "getBlockState", 1).invoke(level, bpC.getConstructor(int.class, int.class, int.class).newInstance(bl.getX(), bl.getY(), bl.getZ()));
             Object block = findMethod(state.getClass(), "getBlock", 0).invoke(state);
-            findMethod(level.getClass(), "updateNeighborsAt", 2).invoke(level, pos, block);
+            Method upd;
+            try { upd = findMethod(level.getClass(), "updateNeighborsAt", 3); upd.invoke(level, pos, block, null); }  // 26.x: (pos, block, Orientation)
+            catch (NoSuchMethodException e) { findMethod(level.getClass(), "updateNeighborsAt", 2).invoke(level, pos, block); }
             return "setblock+neighbours";
         } catch (Throwable t) {
             return "setblock";
