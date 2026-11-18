@@ -25,7 +25,7 @@ from render_lib import region_files, chunks, unpack, full, color, C, png_write, 
 
 RS = ('lever', 'redstone_wire', 'repeater', 'comparator', 'redstone_torch', 'redstone_wall_torch', 'redstone_lamp', 'copper_bulb', 'piston', 'sticky_piston',
       'dispenser', 'dropper', 'observer', 'sculk_sensor', 'calibrated_sculk_sensor', 'daylight_detector', 'target', 'tripwire_hook', 'tripwire', 'note_block',
-      'redstone_block', 'hopper', 'crafter', 'bell', 'tnt', 'iron_door', 'iron_trapdoor', 'trapped_chest', 'pressure_plate', 'button', 'lightning_rod', 'rail')
+      'redstone_block', 'hopper', 'crafter', 'bell', 'tnt', 'iron_door', 'iron_trapdoor', 'trapped_chest', 'pressure_plate', 'button', 'lightning_rod', 'rail', 'lectern')
 AIRS = ('minecraft:air', 'minecraft:cave_air', 'minecraft:void_air')
 
 def is_component(n):

@@ -431,7 +431,8 @@
     function statePill(f) {
       var st = f.state || {};
       if (st.on == null) return '<span class="mp-pill" title="Its chunk is not loaded and it is not in the last save">?</span>';
-      return '<span class="mp-pill' + (st.on ? ' on' : '') + '" title="' + (st.source === 'live' ? 'Live from the server' : 'From the last save') + '">' + (st.on ? 'ON' : 'OFF') + (st.source === 'save' ? ' · saved' : '') + '</span>';
+      var word = st.label ? st.label : (st.on ? 'ON' : 'OFF');
+      return '<span class="mp-pill' + (st.on ? ' on' : '') + '" title="' + (st.source === 'live' ? 'Live from the server' : 'From the last save') + '">' + esc(word) + (st.source === 'save' ? ' · saved' : '') + '</span>';
     }
     function controlFacts(f) {
       var c = f.control || {}, h = '<dl class="mp-ctl">';

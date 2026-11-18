@@ -98,7 +98,11 @@ export const KINDS: Record<string, { label: string; layer: string }> = {
   control: { label: "Control", layer: "controls" },
 };
 /** How a lever, button or sensor is used: shown in the Controls card. */
-export interface ControlInfo { group?: string; type?: string; reach?: string; on?: string; off?: string; drives?: string; verified?: boolean }
+export interface ControlInfo {
+  group?: string; type?: string; reach?: string; on?: string; off?: string; drives?: string; verified?: boolean;
+  /** Read the state from another block (a door, a latch bulb) when the control's own position means nothing (toggle levers, buttons). */
+  state?: { pos: V3; on: string; off: string };
+}
 
 type V3 = [number, number, number];
 export interface Floor { y: number; name: string }
@@ -220,6 +224,7 @@ function cleanFields(a: FeatureInput, partial: boolean): Record<string, any> {
       o.__labels.control = c === null ? undefined : {
         group: t("group", 60), type: t("type", 20), reach: t("reach"), on: t("on"), off: t("off"), drives: t("drives"),
         verified: c?.verified === undefined ? undefined : truthy(c.verified),
+        state: c?.state ? { pos: vec3(c.state.pos, "control.state.pos"), on: String(c.state.on ?? "On").slice(0, 40), off: String(c.state.off ?? "Off").slice(0, 40) } : undefined,
       };
     }
     if (a.rooms !== undefined) {
@@ -485,7 +490,8 @@ async function sliceControls(srv: ServerId, mv: string, rd: string, force: boole
   if (!cs.length) return 0;
   const dir = `${outDir(srv, mv)}/controls`;
   mkdirSync(dir, { recursive: true });
-  const box = { from: [Math.min(...cs.map((f) => f.x!)) - 1, Math.min(...cs.map((f) => f.y!)) - 1, Math.min(...cs.map((f) => f.z!)) - 1], to: [Math.max(...cs.map((f) => f.x!)) + 1, Math.max(...cs.map((f) => f.y!)) + 1, Math.max(...cs.map((f) => f.z!)) + 1] };
+  const ps = cs.flatMap((f) => [[f.x!, f.y!, f.z!], ...(f.labels?.control?.state ? [f.labels.control.state.pos] : [])]);
+  const box = { from: [0, 1, 2].map((i) => Math.min(...ps.map((p) => p[i])) - 1), to: [0, 1, 2].map((i) => Math.max(...ps.map((p) => p[i])) + 1) };
   const specStr = JSON.stringify({ box, components_only: true });
   const prev = existsSync(`${dir}/spec.json`) ? readFileSync(`${dir}/spec.json`, "utf8") : "";
   let gen = 0;
@@ -499,17 +505,18 @@ async function sliceControls(srv: ServerId, mv: string, rd: string, force: boole
   return cs.length;
 }
 /** On/off of each control: live from the server where its chunk is loaded, else the last save. */
-async function controlStates(srv: ServerId, mv: string, cs: Feature[]): Promise<Record<string, { on: boolean | null; source: "live" | "save" | null; block: string | null }>> {
-  const out: Record<string, { on: boolean | null; source: "live" | "save" | null; block: string | null }> = {};
+async function controlStates(srv: ServerId, mv: string, cs: Feature[]): Promise<Record<string, { on: boolean | null; source: "live" | "save" | null; block: string | null; label?: string }>> {
+  const out: Record<string, { on: boolean | null; source: "live" | "save" | null; block: string | null; label?: string }> = {};
+  const at = (f: Feature): V3 => f.labels?.control?.state?.pos || [f.x!, f.y!, f.z!];
   const disk = new Map((readJson<Array<[number, number, number, string]>>(`${outDir(srv, mv)}/controls/components.json`) || []).map((d) => [`${d[0]},${d[1]},${d[2]}`, d[3]]));
   let live: Array<string | null> = [];
   if (SERVERS[srv].modern && cs.length) {
-    try { live = (await plugin("/states", { world: mv, positions: cs.map((f) => [f.x, f.y, f.z]) }, 5000, srv)).states || []; } catch { /* server down */ }
+    try { live = (await plugin("/states", { world: mv, positions: cs.map(at) }, 5000, srv)).states || []; } catch { /* server down */ }
   }
   cs.forEach((f, i) => {
-    const st = live[i] ?? disk.get(`${f.x},${f.y},${f.z}`) ?? null;
-    const c = classify(st);
-    out[f.id] = { on: c ? !!c[1] : null, source: live[i] ? "live" : st ? "save" : null, block: c ? c[2] : null };
+    const p = at(f), st = live[i] ?? disk.get(`${p[0]},${p[1]},${p[2]}`) ?? null;
+    const c = classify(st), sp = f.labels?.control?.state;
+    out[f.id] = { on: c ? !!c[1] : null, source: live[i] ? "live" : st ? "save" : null, block: c ? c[2] : null, label: c && sp ? (c[1] ? sp.on : sp.off) : undefined };
   });
   return out;
 }
@@ -551,6 +558,7 @@ export function classify(st: string | null): [string, number, string] | null {
   if (n.endsWith("lightning_rod")) return ["Z", on("powered"), n];
   if (n === "lever") return ["V", on("powered"), n];
   if (n.endsWith("_button")) return ["U", on("powered"), n];
+  if (n === "lectern") return ["U", on("has_book"), n];
   if (n === "iron_door" || n === "iron_trapdoor") return ["D", on("open"), n];
   if (n === "piston" || n === "sticky_piston") return ["K", on("extended"), n];
   if (n === "piston_head") return ["K", 1, n];
@@ -630,7 +638,7 @@ export const MAP_TOOL = {
       rooms: { type: "array", items: { type: "object" } },
       levers: { type: "array", items: { type: "object" } },
       secret: { type: "boolean" }, underground: { type: "boolean" },
-      control: { type: "object", description: "kind 'control' only: {group (place, e.g. 'North Gate'), type ('lever'|'button'|'sensor'), reach (how to get to it), on (what ON does), off (what OFF does), drives (what it powers), verified (true once checked in the world)}" },
+      control: { type: "object", description: "kind 'control' only: {group (place, e.g. 'North Gate'), type ('lever'|'button'|'lectern'|'sensor'|'status'|'auto'), reach (how to get to it), on (what ON does), off (what OFF does), drives (what it powers), verified (true once checked in the world), state: {pos:[x,y,z], on:'Open', off:'Closed'} to show a door/latch state instead of the lever's own position (toggle levers, buttons)}" },
       filter_kind: { type: "string", description: "list: only this kind" },
     },
     required: ["action", "world"],
