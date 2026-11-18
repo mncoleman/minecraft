@@ -205,7 +205,8 @@ Nothing here touches `mc-eagler`.
    `cp ../server/data/eagler_forwarding.secret data/` (same secret as Caddy), then in
    `data/plugins/EaglercraftXServer/`: `listener.yml` → `forward_ip: true`,
    `forward_ip_header: 'X-Forwarded-For'`, `forward_secret: true`,
-   `require_tls: false`; `settings.yml` → `enable_authentication_events: true`.
+   `require_tls: false`; `settings.yml` → `enable_authentication_events: true` and
+   `voice_service.enable_voice_service: true` (in-game voice, as on 1.8; `ice_servers.yml` is the same file as 1.8's).
    Multiverse: in `data/plugins/Multiverse-Core/config.yml` set
    `enforce-gamemode: false` (as on 1.8), then `mv reload`. Otherwise every world
    change forces the world's gamemode (all 26 worlds are survival).
