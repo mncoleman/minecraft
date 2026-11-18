@@ -150,12 +150,12 @@
       area: ['#ffb454', 'buildings', 9, '3px', 2], building: ['#ffb454', 'buildings', 9, '50%', 2],
       saved: ['#5aa9ff', 'places', 7, '50%', 3], place: ['#5aa9ff', 'places', 7, '50%', 3],
       tower: ['#e6e9ee', 'towers', 7, '2px', 4], control: ['#e3b34a', 'controls', 7, '1px', 5],
-      passage: ['#c08cff', 'underground', 7, '50%', 6], rail: ['#c08cff', 'underground', 7, '50%', 6],
+      passage: ['#c08cff', 'underground', 7, '50%', 6], rail: ['#c08cff', 'underground', 7, '50%', 6], road: ['#d9c9a3', 'roads', 6, '2px', 5],
       planned: ['#ffd166', 'planned', 8, '2px', 6], keepclear: ['#ff6b6b', 'keepclear', 8, '50%', 6]
     };
     var SECRET = '#ff8ad8';
     // [id, label, swatch, default ('on' | 'off' | 'auto'), zoom at which 'auto' shows it]
-    var LAYERS = [['gates', 'Gates and walls', '#46d17f', 'on'], ['buildings', 'Buildings and areas', '#ffb454', 'on'], ['places', 'Places', '#5aa9ff', 'on'],
+    var LAYERS = [['gates', 'Gates and walls', '#46d17f', 'on'], ['roads', 'Roads', '#d9c9a3', 'on'], ['buildings', 'Buildings and areas', '#ffb454', 'on'], ['places', 'Places', '#5aa9ff', 'on'],
       ['towers', 'Towers', '#e6e9ee', 'auto', 2], ['controls', 'Controls (levers, buttons)', '#e3b34a', 'auto', 4], ['underground', 'Underground and rails', '#c08cff', 'auto', 3],
       ['planned', 'Planned', '#ffd166', 'auto', 2], ['keepclear', 'Keep clear', '#ff6b6b', 'auto', 2], ['secret', 'Secret passages', SECRET, 'auto', 3],
       ['labels', 'Labels', '#e6e9ee', 'on'], ['grid', 'Grid', '#8b95a3', 'off']];
@@ -334,8 +334,8 @@
         var pick = function () { select(f.id, false); };
         if (f.points && f.points.length > 1) {
           var ll = f.points.map(function (p) { return P(p[0] + 0.5, p[p.length - 1] + 0.5); });
-          var dash = f.kind === 'wall' ? null : f.kind === 'planned' ? '6 5' : f.secret ? '2 4' : '7 5';
-          L.polyline(ll, { color: col, weight: f.kind === 'wall' ? 2.5 : 2, opacity: isSel ? 1 : 0.7, dashArray: dash, lineCap: 'round', lineJoin: 'round' }).on('click', pick).addTo(featureGroup);
+          var dash = f.kind === 'wall' || f.kind === 'road' ? null : f.kind === 'planned' ? '6 5' : f.secret ? '2 4' : '7 5';
+          L.polyline(ll, { color: col, weight: f.kind === 'wall' || f.kind === 'road' ? 2.5 : 2, opacity: isSel ? 1 : 0.7, dashArray: dash, lineCap: 'round', lineJoin: 'round' }).on('click', pick).addTo(featureGroup);
         }
         if (f.box) {
           var b = f.box;
@@ -345,7 +345,7 @@
           }).on('click', pick).addTo(featureGroup);
         }
         if (f.x == null || f.z == null) return;
-        if ((f.kind === 'wall' || f.kind === 'rail' || f.kind === 'passage') && f.points && f.points.length > 1 && !isSel) return; // the line is the feature
+        if ((f.kind === 'wall' || f.kind === 'rail' || f.kind === 'passage' || f.kind === 'road') && f.points && f.points.length > 1 && !isSel) return; // the line is the feature
         pts.push({ f: f, col: col, isSel: isSel, k: KIND[f.saved ? 'saved' : f.kind] || KIND.place, px: map.project(P(f.x + 0.5, f.z + 0.5), z) });
       });
       // cluster: below 2 px per block, markers within ~30 px share one bubble
@@ -484,7 +484,7 @@
       else toast('That one has been removed from the map.');
     });
     // ── search: features, controls, areas and saved places by name and kind; "x z" or "x y z" jumps ──
-    var GROUPS = [['control', 'Controls'], ['gate', 'Gates'], ['area', 'Areas and buildings'], ['building', 'Areas and buildings'], ['tower', 'Towers'], ['passage', 'Passages'], ['rail', 'Rail lines'], ['saved', 'Your places'], ['place', 'Places'], ['wall', 'Walls'], ['planned', 'Planned'], ['keepclear', 'Keep clear']];
+    var GROUPS = [['control', 'Controls'], ['gate', 'Gates'], ['area', 'Areas and buildings'], ['building', 'Areas and buildings'], ['tower', 'Towers'], ['passage', 'Passages'], ['road', 'Roads'], ['rail', 'Rail lines'], ['saved', 'Your places'], ['place', 'Places'], ['wall', 'Walls'], ['planned', 'Planned'], ['keepclear', 'Keep clear']];
     function groupOf(f) { for (var i = 0; i < GROUPS.length; i++) if (GROUPS[i][0] === f.kind) return GROUPS[i][1]; return 'Other'; }
     function words(s) { return String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean); }
     function near(a, b) {   // one typo allowed in words of 4+ letters

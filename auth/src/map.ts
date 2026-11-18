@@ -92,6 +92,7 @@ export const KINDS: Record<string, { label: string; layer: string }> = {
   area: { label: "Area", layer: "buildings" },
   passage: { label: "Passage", layer: "underground" },
   rail: { label: "Rail line", layer: "underground" },
+  road: { label: "Road", layer: "roads" },
   place: { label: "Place", layer: "places" },
   planned: { label: "Planned", layer: "planned" },
   keepclear: { label: "Keep clear", layer: "keepclear" },
@@ -616,7 +617,7 @@ export const MAP_TOOL = {
   description: [
     "Keep the panel's Map tab current. Every world has a map (terrain rendered from the save) plus a features layer that YOU maintain: when you build or change a wall, tower, gate, building, passage, rail line or area, add or update it here.",
     "action 'list' (features + recent updates), 'add', 'update' (by id), 'remove' (by id). id is the feature's short id (slug, e.g. 'north-gate'), returned by add/list.",
-    "kinds: wall (points), tower, gate, building, area, passage (set secret:true for hidden ones; owner/admin only see those), rail (points), place, planned (work not built yet), keepclear (box: nothing may be built there).",
+    "kinds: wall (points), road (points, give [x,y,z] so it sits on the ground in 3D), tower, gate, building, area, passage (set secret:true for hidden ones; owner/admin only see those), rail (points), place, planned (work not built yet), keepclear (box: nothing may be built there).",
     "Geometry: pos [x,y,z] for a marker (y = where a player stands there: the map's Teleport button goes to exactly this spot); points [[x,z],...] or [[x,y,z],...] for walls, passages and rail lines; box {from:[x,y,z], to:[x,y,z]} for an area/building/keep-clear zone.",
     "Drill-down floor plans: give a box (include every floor, basement to roof) and floors [{y, name}] (y = the floor block's y, standing level is y+1) or floors:'auto'. The map then cuts a plan at each floor and shows every lever, wire, lamp, piston, door, trap and rail in it, live. rooms [{name,x,z,y}] label rooms; levers [{pos:[x,y,z], name}] name the switchboard.",
     "Controls: every lever, button and trigger players can use gets kind 'control' with pos (the lever block itself) and control {group, type, reach, on, off, drives, verified}. The map reads its live state and lists it in the Controls card.",
@@ -800,7 +801,7 @@ export function mountMap(app: Hono): void {
 <div class="mp-legend">
 <span><i class="lg sq" style="background:#46d17f"></i>Gate · wall (line)</span><span><i class="lg sq" style="background:#e6e9ee"></i>Tower</span>
 <span><i class="lg" style="background:#ffb454"></i>Building · area (box)</span><span><i class="lg" style="background:#c08cff"></i>Underground · rail (dashed)</span>
-<span><i class="lg" style="background:#5aa9ff"></i>Place</span><span><i class="lg sq" style="background:#ffd166"></i>Planned (dashed)</span>
+<span><i class="lg" style="background:#5aa9ff"></i>Place</span><span><i class="lg sq" style="background:#d9c9a3"></i>Road (line)</span><span><i class="lg sq" style="background:#ffd166"></i>Planned (dashed)</span>
 <span><i class="lg" style="background:#ff6b6b"></i>Keep clear (dashed box)</span><span><i class="lg dm" style="background:#e3b34a"></i>Control (lever, button)</span>
 <span><i class="lg" style="background:#ff8ad8"></i>Secret passage</span>
 </div>

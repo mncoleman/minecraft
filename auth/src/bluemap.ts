@@ -90,13 +90,14 @@ async function reloadBlueMap(): Promise<void> {
 // ── markers ──────────────────────────────────────────────────────────────────
 const COLORS: Record<string, string> = {
   wall: "#46d17f", tower: "#e6e9ee", gate: "#46d17f", building: "#ffb454", area: "#ffb454",
-  passage: "#c08cff", rail: "#c08cff", place: "#5aa9ff", planned: "#ffd166", keepclear: "#ff6b6b", control: "#e3b34a",
+  passage: "#c08cff", rail: "#c08cff", place: "#5aa9ff", planned: "#ffd166", keepclear: "#ff6b6b", control: "#e3b34a", road: "#d9c9a3",
 };
 // [id, label, which features, hidden until switched on in BlueMap's menu]
 // Matches the 2D defaults: gates, buildings and places show; the rest wait.
 const SETS: Array<[string, string, (f: Feature) => boolean, boolean]> = [
   ["walls", "Gates and walls", (f) => ["wall", "gate"].includes(f.kind) && !f.underground, false],
   ["buildings", "Buildings and areas", (f) => ["building", "area"].includes(f.kind) && !f.underground, false],
+  ["roads", "Roads", (f) => f.kind === "road", false],
   ["places", "Places", (f) => f.kind === "place" && !f.underground, false],
   ["towers", "Towers", (f) => f.kind === "tower" && !f.underground, false],
   ["controls", "Controls (levers and buttons)", (f) => f.kind === "control", false],
@@ -105,7 +106,7 @@ const SETS: Array<[string, string, (f: Feature) => boolean, boolean]> = [
   ["keepclear", "Keep clear", (f) => f.kind === "keepclear", true],
 ];
 /** How far away (blocks) a POI still shows in 3D: the minor ones only up close. */
-const MAX_DIST: Record<string, number> = { gate: 4000, area: 4000, building: 2500, place: 1200, tower: 450, control: 90, passage: 300, rail: 300, planned: 900, keepclear: 1500, wall: 2500 };
+const MAX_DIST: Record<string, number> = { road: 3000, gate: 4000, area: 4000, building: 2500, place: 1200, tower: 450, control: 90, passage: 300, rail: 300, planned: 900, keepclear: 1500, wall: 2500 };
 function esc(s: string): string { return (s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!)); }
 function detailHtml(f: Feature, mv: string): string {
   const ci = f.kind === "control" ? f.labels?.control : null;
@@ -129,7 +130,7 @@ function markersFor(mv: string) {
         out.push({ id: f.slug + "-area", type: "area", label: esc(f.name), detail: detailHtml(f, mv), color, fill: f.kind === "keepclear" ? 0.08 : 0.1, width: 2, maxDistance: Math.min(MAX_DIST[f.kind] ?? 1500, 1500),
           rect: [f.box.from[0], f.box.from[2], f.box.to[0] + 1, f.box.to[2] + 1], y: (f.y ?? f.box.from[1]) + 0.5 });
       }
-      const lineOnly = (f.kind === "wall" || f.kind === "rail" || f.kind === "passage") && f.points && f.points.length > 1;
+      const lineOnly = (f.kind === "wall" || f.kind === "rail" || f.kind === "passage" || f.kind === "road") && f.points && f.points.length > 1;
       if (f.x !== null && f.z !== null && !lineOnly) {
         out.push({ id: f.slug, type: "poi", label: esc(f.name), detail: detailHtml(f, mv), pos: [f.x + 0.5, (f.y ?? yDef) + 1, f.z + 0.5],
           icon: `/map/assets/poi/${f.kind}.svg`, maxDistance: MAX_DIST[f.kind] ?? 1500 });
