@@ -259,6 +259,31 @@ Command dialect differences the panel handles for 26: Multiverse 5
   `rcon-cli tps` during a full render. `rcon-cli bluemap` shows progress.
 
 
+## 26 game socket off Cloudflare (2026-11-18)
+
+Cloudflare kept dropping the long-lived game WebSocket, kicking every player at
+once ("logged in from another location" as the client reconnects). The page and
+client download stay on proxied `minecraft.mncoleman.com`; only the socket moved:
+
+- **DNS:** `play.minecraft.mncoleman.com` A 161.153.110.196, **DNS-only** (grey cloud).
+- **Caddy:** a `play.minecraft.mncoleman.com` site block (appended to
+  /etc/caddy/Caddyfile, backup beside it) proxies `/26` WebSocket upgrades to
+  127.0.0.1:25570 with the same `X-Eagler-Secret`, plus `stream_close_delay 10m`
+  so a Caddy reload doesn't cut live games. Anything else redirects to the panel.
+  Caddy gets its own Let's Encrypt cert for it.
+- **mc-auth .env:** `COOKIE_DOMAIN=minecraft.mncoleman.com` (mc_session now also
+  reaches the subdomain; `/26` re-issues older host-only cookies) and
+  `PLAY26_WS_URL=wss://play.minecraft.mncoleman.com/26` (Play 26 link; old
+  bookmarks with the previous `?server=` are redirected).
+- **Client:** `clients/26/index.html` joinServer and the ArchMC→Home26 rewrite use
+  the play host (`stage-client-26.sh` defaults to it).
+
+**Rollback:** remove the two .env lines and redeploy mc-auth; restore
+`wss://minecraft.mncoleman.com/26` in clients/26/index.html (regenerate .br/.gz);
+the old `/26` route on minecraft.mncoleman.com was never removed, so nothing
+else is needed. Optionally delete the DNS record and Caddy block.
+
+
 ## Retiring 1.8 (done 2026-11-18) and rolling it back
 
 1.8 is **stopped, not deleted**. That freed about 3.8 GB of RAM.
