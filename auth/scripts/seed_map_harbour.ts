@@ -36,7 +36,7 @@ const F: FeatureInput[] = [
     control: ctl({ type: "status", reach: "Harbour Gate Control, above the closed lamp.", on: "Lit while the gate is open", drives: "Nothing: it shows the gate." }) },
   { slug: "ctl-harbour-east-lamp", kind: "control", name: "East Lighthouse gate lamp", status: "Checked", pos: [148, 74, 128],
     control: ctl({ type: "status", reach: "In the floor of the East Lighthouse.", on: "Lit = gate closed", off: "Dark = gate open", drives: "Nothing: it shows the gate. Its chime is at 148 74 126." }) },
-  { slug: "ctl-harbour-bands", kind: "control", name: "Bridge signal bands", status: "Checked", pos: [139, 69, 128],
+  { slug: "ctl-harbour-bands", kind: "control", name: "Bridge signal bands", status: "Checked", pos: [138, 69, 128],
     control: ctl({ type: "status", reach: "Along the bridge, x 132-146.", on: "Red band (y 69) lit = gate closed; green band (y 71) lit = gate open", drives: "Nothing: they show the gate from the water." }) },
   { slug: "ctl-harbour-lights", kind: "control", name: "Lighthouse lights (automatic)", status: "Checked", pos: [125, 115, 124],
     control: ctl({ type: "auto", reach: "Lantern-roof rings at y 115 (32 lamps per tower), watch-room balcony beacons at y 106, night merlons along the bridge, both sea arms and the turrets.", on: "Lit at night (daylight sensors): nothing to switch", drives: "The lantern-room lens is always lit and has no circuit." }) },
