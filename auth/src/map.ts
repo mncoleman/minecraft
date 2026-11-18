@@ -772,6 +772,7 @@ export function mountMap(app: Hono): void {
   <div class="mpf-map" id="mp-map" role="application" aria-label="Map of ${esc(w.name)}. Drag to pan, scroll or pinch to zoom."></div>
   <div class="mpf-top">
     <div class="mpf-title"><span class="eyebrow">Map</span><b>${esc(w.name)}</b> ${edBadge(srv)}</div>
+    <div class="mp-search" role="search"><input id="mp-search" type="search" placeholder="Search the map" aria-label="Search the map: a place, gate, lever, tower, or coordinates" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="mp-results" enterkeyhint="search"/><kbd aria-hidden="true">/</kbd><div id="mp-results" class="mp-results" role="listbox" hidden></div></div>
     ${worldSelect({ srv, mv })}
     <div class="mp-status" id="mp-status">Loading…</div>
     <button type="button" class="mpf-btn" id="mp-view" hidden aria-pressed="false">Top-down</button>
@@ -783,8 +784,9 @@ export function mountMap(app: Hono): void {
     ${mapCard("help", "How to use", `<div class="mp-help">
 <p><b>Move</b> Drag to pan (one finger on a phone). Scroll or pinch to zoom. <span class="k">+</span> <span class="k">−</span> zoom and <span class="k">⤢</span> fits everything.</p>
 <p><b>3D and top-down</b> The <span class="k">3D</span> / <span class="k">Top-down</span> button switches view. In 3D, drag to move, right-drag or two fingers to turn and tilt. Its bar at the bottom left: <span class="k">☰</span> menu (marker sets on and off, settings, flat or free-flight views), view buttons, and your position.</p>
-<p><b>Find things</b> <i>Go to</i> takes a place, a feature name or coordinates like <code>140 260</code>. Click any marker to show it in <i>Selected</i>: <i>Teleport here</i> (you must be in the game on that server), <i>Save as place</i>, and for areas <i>Open floor plans and power</i>.</p>
-<p><b>Layers</b> In top-down, the <i>Layers</i> card turns each kind on and off. In 3D, use the ☰ menu.</p>
+<p><b>Search</b> The box at the top (press <span class="k">/</span>) finds gates, levers, towers, areas and your places by name or kind: try <i>north gate lever</i> or just <i>lever</i>. Coordinates like <code>310 146</code> or <code>310 78 146</code> jump there.</p>
+<p><b>Select</b> Click any marker to show it in <i>Selected</i>: <i>Teleport here</i> (you must be in the game on that server), <i>Save as place</i>, and for areas <i>Open floor plans and power</i>.</p>
+<p><b>Layers</b> Gates, buildings and places show at first. Towers, controls, rails, planned work and keep-clear zones say <i>Auto</i>: they appear once you zoom in close; click a layer to switch it On or Off for good. Numbered bubbles are several markers close together: click one to zoom in. In 3D, use the ☰ menu.</p>
 <p><b>Controls</b> The <i>Controls</i> card lists every lever and button by place: how to reach it, what ON and OFF do, what it drives, and whether it is on right now. <i>Show on map</i> jumps to it.</p>
 <p><b>Floor plans and power</b> Floor tabs pick the level. Pick a lever to light up the wire, lamps, pistons and doors it drives. <i>Flip in the game</i> switches the real lever (world owner and admins only), then the map reads the new state back.</p>
 <div class="mp-legend">
@@ -797,7 +799,6 @@ export function mountMap(app: Hono): void {
 </div>
 `)}
     ${mapCard("sel", "Selected", `<div id="mp-sel"><p class="muted" style="margin:0">Click a tower, gate, building or place on the map.</p></div>`)}
-    ${mapCard("goto", "Go to", `<form id="mp-goto" class="mp-goto" autocomplete="off"><label class="sr" for="mp-goto-q">Place, feature or coordinates</label><input id="mp-goto-q" list="mp-goto-list" placeholder="North Gate, or x z" enterkeyhint="go"/><datalist id="mp-goto-list"></datalist><button type="submit" class="btn-primary">Go</button></form><p class="hint" style="margin:.45rem 0 0;font-size:.78rem">A saved place, a feature, or coordinates like <code>140 260</code>.</p>`)}
     ${mapCard("controls", "Controls", `<p class="hint" style="margin:0 0 .5rem;font-size:.8rem">No switch to look for: the night lamps on every wall and tower crown, the lighthouse lantern rings and balcony beacons, and the harbour merlons come on at dusk (daylight sensors); the gate and postern motion lights react to movement; the lighthouse lens is always lit.</p><div id="mp-controls"><p class="muted" style="margin:0">Loading…</p></div>`)}
   </div>
   <div class="mpf-col mpf-right">

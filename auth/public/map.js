@@ -75,7 +75,7 @@
   // Floating cards: each header collapses its card (remembered per page); one
   // button hides them all. On a phone they start collapsed so the map shows.
   var PHONE = window.matchMedia && window.matchMedia('(max-width: 700px)').matches;
-  function cardKey(id) { return 'mp-card:' + B.mode + ':' + id; }
+  function cardKey(id) { return 'mp-card2:' + B.mode + ':' + id; }
   function setCard(el, open, remember) {
     el.classList.toggle('collapsed', !open);
     el.querySelector('.mpc-h').setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -85,7 +85,8 @@
   document.querySelectorAll('.mpc').forEach(function (el) {
     var saved = null;
     try { saved = localStorage.getItem(cardKey(el.getAttribute('data-card'))); } catch (e) { /* private mode */ }
-    var dflt = !PHONE;
+    // Only the main card starts open (Selected on the map, Lever on floor plans); the rest fold.
+    var dflt = !PHONE && (el.getAttribute('data-card') === 'sel' || el.getAttribute('data-card') === 'lever');
     if (el.getAttribute('data-card') === 'help') {   // open on a first visit, folded after that
       var seen = null; try { seen = localStorage.getItem('mp-help-seen:' + B.mode); localStorage.setItem('mp-help-seen:' + B.mode, '1'); } catch (e) { /* private mode */ }
       dflt = !seen;
@@ -143,21 +144,27 @@
 
   // ═══════════════════════════════════════════════════════════════ world map
   function worldView() {
+    // [colour, layer, size px, radius, label priority (lower shows first)]
     var KIND = {
-      wall: ['#46d17f', 'walls', 8, '2px'], tower: ['#e6e9ee', 'walls', 10, '2px'], gate: ['#46d17f', 'walls', 14, '3px'],
-      building: ['#ffb454', 'buildings', 12, '50%'], area: ['#ffb454', 'buildings', 12, '3px'],
-      passage: ['#c08cff', 'underground', 10, '50%'], rail: ['#c08cff', 'underground', 10, '50%'],
-      place: ['#5aa9ff', 'places', 10, '50%'], planned: ['#ffd166', 'planned', 12, '3px'], keepclear: ['#ff6b6b', 'keepclear', 12, '50%'],
-      saved: ['#5aa9ff', 'places', 10, '50%'], control: ['#e3b34a', 'controls', 9, '1px']
+      gate: ['#46d17f', 'gates', 10, '2px', 1], wall: ['#46d17f', 'gates', 7, '2px', 5],
+      area: ['#ffb454', 'buildings', 9, '3px', 2], building: ['#ffb454', 'buildings', 9, '50%', 2],
+      saved: ['#5aa9ff', 'places', 7, '50%', 3], place: ['#5aa9ff', 'places', 7, '50%', 3],
+      tower: ['#e6e9ee', 'towers', 7, '2px', 4], control: ['#e3b34a', 'controls', 7, '1px', 5],
+      passage: ['#c08cff', 'underground', 7, '50%', 6], rail: ['#c08cff', 'underground', 7, '50%', 6],
+      planned: ['#ffd166', 'planned', 8, '2px', 6], keepclear: ['#ff6b6b', 'keepclear', 8, '50%', 6]
     };
     var SECRET = '#ff8ad8';
-    var LAYERS = [['walls', 'Walls, towers, gates', '#46d17f'], ['buildings', 'Buildings and areas', '#ffb454'], ['places', 'Places', '#5aa9ff'],
-      ['underground', 'Underground and rails', '#c08cff'], ['planned', 'Planned', '#ffd166'], ['keepclear', 'Keep clear', '#ff6b6b'],
-      ['controls', 'Controls (levers, buttons)', '#e3b34a'], ['secret', 'Secret passages', SECRET], ['labels', 'Labels', '#e6e9ee'], ['grid', 'Grid', '#8b95a3']];
+    // [id, label, swatch, default ('on' | 'off' | 'auto'), zoom at which 'auto' shows it]
+    var LAYERS = [['gates', 'Gates and walls', '#46d17f', 'on'], ['buildings', 'Buildings and areas', '#ffb454', 'on'], ['places', 'Places', '#5aa9ff', 'on'],
+      ['towers', 'Towers', '#e6e9ee', 'auto', 1], ['controls', 'Controls (levers, buttons)', '#e3b34a', 'auto', 3], ['underground', 'Underground and rails', '#c08cff', 'auto', 2],
+      ['planned', 'Planned', '#ffd166', 'auto', 1], ['keepclear', 'Keep clear', '#ff6b6b', 'auto', 1], ['secret', 'Secret passages', SECRET, 'auto', 2],
+      ['labels', 'Labels', '#e6e9ee', 'on'], ['grid', 'Grid', '#8b95a3', 'off']];
     var KEY = [['Grass', 'rgb(112,157,49)'], ['Trees', 'rgb(0,109,0)'], ['Cherry trees', 'rgb(213,112,145)'], ['Water', 'rgb(56,56,224)'], ['Sand and birch', 'rgb(217,205,143)'],
       ['Stone and cobble', 'rgb(99,99,99)'], ['Snow', 'rgb(224,224,224)'], ['Dirt and paths', 'rgb(133,96,68)'], ['Deepslate (walls)', 'rgb(88,88,88)'], ['Copper and lamps', 'rgb(190,112,45)']];
-    var show = { walls: true, buildings: true, places: true, underground: true, planned: true, keepclear: true, controls: true, secret: true, labels: true, grid: false };
-    try { var saved = JSON.parse(sessionStorage.getItem('mp-layers') || 'null'); if (saved) for (var k in saved) if (k in show) show[k] = !!saved[k]; } catch (e) { /* private mode */ }
+    var LKEY = 'mp-layers2:' + B.srv + '/' + B.mv, show = {}, REVEAL = {};
+    LAYERS.forEach(function (L0) { show[L0[0]] = L0[3]; if (L0[4] != null) REVEAL[L0[0]] = L0[4]; });
+    try { var savedL = JSON.parse(localStorage.getItem(LKEY) || 'null'); if (savedL) for (var k0 in savedL) if (k0 in show && /^(on|off|auto)$/.test(savedL[k0])) show[k0] = savedL[k0]; } catch (e) { /* private mode */ }
+    function visible(layer) { var v = show[layer]; return v === 'on' || (v === 'auto' && REVEAL[layer] != null && map.getZoom() >= REVEAL[layer]); }
     var data = null, selId = null, tiles = null, gridLayer = null, featureGroup = L.layerGroup(), markers = {}, fitted = false, pollT = null;
 
     $('mp-key').innerHTML = KEY.map(function (k) { return '<span><i style="background:' + k[1] + '"></i>' + esc(k[0]) + '</span>'; }).join('');
@@ -166,18 +173,17 @@
     map.setView(P(150, 150), -1);
     coordsReadout(map, $('mp-coords'), function (x, z) { return 'x ' + x + '  ·  z ' + z; });
     function zoomLabel() { var z = map.getZoom(); $('mp-zoom').textContent = z >= 0 ? Math.pow(2, z) + ' px per block' : '1 px = ' + Math.pow(2, -z) + ' blocks'; }
-    map.on('zoomend', function () { zoomLabel(); drawFeatures(); });
+    map.on('zoomend', function () { zoomLabel(); drawFeatures(); if (data) renderLayers(); });
     zoomLabel();
 
     function layerOf(f) {
+      if (f.saved) return 'places';
       if (f.secret) return 'secret';
       var l = (KIND[f.kind] || KIND.place)[1];
-      if (f.kind === 'control') return 'controls';
-      if (f.underground && l !== 'planned' && l !== 'keepclear') return 'underground';
+      if (f.underground && l !== 'planned' && l !== 'keepclear' && l !== 'controls') return 'underground';
       return l;
     }
     function colorOf(f) { return f.secret ? SECRET : (KIND[f.kind] || KIND.place)[0]; }
-    function isMajor(f) { return !f.underground && (f.kind === 'gate' || f.kind === 'area' || f.kind === 'keepclear' || (f.kind === 'planned' && f.x != null)); }
 
     // ── 3D view (BlueMap, proxied at /map/3d/) over the same cards ──
     var view = null, frame = null;
@@ -287,20 +293,26 @@
         var key = JSON.stringify(m.tiles);
         if (key !== tiles._mpKey) { tiles._mpKey = key; tiles.options.minNativeZoom = m.min_zoom; tiles.redraw(); }
       }
-      if (show.grid && !gridLayer) gridLayer = new Grid({ tileSize: 256, minZoom: -5, maxZoom: 5 }).addTo(map);
-      if (!show.grid && gridLayer) { map.removeLayer(gridLayer); gridLayer = null; }
+      if (show.grid === 'on' && !gridLayer) gridLayer = new Grid({ tileSize: 256, minZoom: -5, maxZoom: 5 }).addTo(map);
+      if (show.grid !== 'on' && gridLayer) { map.removeLayer(gridLayer); gridLayer = null; }
     }
     function renderLayers() {
       var counts = {};
-      data.features.forEach(function (f) { var l = layerOf(f); counts[l] = (counts[l] || 0) + 1; });
-      counts.places = (counts.places || 0) + data.places.length;
-      $('mp-layers').innerHTML = LAYERS.filter(function (L0) { return L0[0] !== 'secret' || data.privileged; })
-        .map(function (L0) { return layerBtn(L0, show[L0[0]], counts[L0[0]]); }).join('');
+      allItems().forEach(function (f) { var l = layerOf(f); counts[l] = (counts[l] || 0) + 1; });
+      $('mp-layers').innerHTML = LAYERS.filter(function (L0) { return L0[0] !== 'secret' || counts.secret; }).map(function (L0) {
+        var v = show[L0[0]], on = visible(L0[0]);
+        var word = v === 'auto' ? (on ? 'Auto · on' : 'Auto') : v === 'on' ? 'On' : 'Off';
+        return '<button type="button" class="mp-layer" data-layer="' + L0[0] + '" aria-pressed="' + (on ? 'true' : 'false') + '" title="' +
+          (v === 'auto' ? 'Shows by itself once you zoom in close. Click to turn it on everywhere.' : 'Click to change') + '"><span class="sw" style="background:' + L0[2] + '"></span><span class="lb">' + esc(L0[1]) + '</span>' +
+          '<span class="ct">' + (counts[L0[0]] || '') + '</span><span class="on">' + word + '</span></button>';
+      }).join('');
     }
     $('mp-layers').addEventListener('click', function (e) {
       var b = e.target.closest('.mp-layer'); if (!b) return;
-      var k = b.getAttribute('data-layer'); show[k] = !show[k];
-      try { sessionStorage.setItem('mp-layers', JSON.stringify(show)); } catch (err) { /* private mode */ }
+      var k = b.getAttribute('data-layer'), L0 = LAYERS.filter(function (x) { return x[0] === k; })[0];
+      var cyc = L0[4] != null ? ['auto', 'on', 'off'] : ['on', 'off'];
+      show[k] = cyc[(cyc.indexOf(show[k]) + 1) % cyc.length];
+      try { localStorage.setItem(LKEY, JSON.stringify(show)); } catch (err) { /* private mode */ }
       renderLayers(); renderTiles(); drawFeatures();
     });
 
@@ -309,37 +321,74 @@
       data.places.forEach(function (p) { list.push({ id: 'place:' + p.id, saved: true, kind: 'saved', kindLabel: 'Your saved place', name: p.name, x: p.x, y: p.y, z: p.z, detail: 'One of your saved places (also in the Command Center).', status: '' }); });
       return list;
     }
+    // Markers: small dots; nearby ones merge into a numbered bubble when zoomed out;
+    // labels only where they don't overlap, most important first.
     function drawFeatures() {
       if (!data) return;
       featureGroup.clearLayers(); markers = {};
-      var z = map.getZoom();
+      var z = map.getZoom(), pts = [];
       allItems().forEach(function (f) {
-        var layer = f.saved ? 'places' : layerOf(f);
-        if (!show[layer]) return;
-        var col = f.saved ? KIND.saved[0] : colorOf(f), isSel = selId === f.id;
+        var layer = layerOf(f), isSel = selId === f.id;
+        if (!visible(layer) && !isSel) return;
+        var col = f.saved ? KIND.saved[0] : colorOf(f);
         var pick = function () { select(f.id, false); };
         if (f.points && f.points.length > 1) {
           var ll = f.points.map(function (p) { return P(p[0] + 0.5, p[p.length - 1] + 0.5); });
           var dash = f.kind === 'wall' ? null : f.kind === 'planned' ? '6 5' : f.secret ? '2 4' : '7 5';
-          L.polyline(ll, { color: col, weight: f.kind === 'wall' ? 3 : 2.5, opacity: isSel ? 1 : 0.8, dashArray: dash, lineCap: 'round', lineJoin: 'round' }).on('click', pick).addTo(featureGroup);
+          L.polyline(ll, { color: col, weight: f.kind === 'wall' ? 2.5 : 2, opacity: isSel ? 1 : 0.7, dashArray: dash, lineCap: 'round', lineJoin: 'round' }).on('click', pick).addTo(featureGroup);
         }
         if (f.box) {
           var b = f.box;
           L.rectangle([P(b.from[0], b.from[2]), P(b.to[0] + 1, b.to[2] + 1)], {
-            color: col, weight: isSel ? 2.5 : 1.5, opacity: 0.9, fillColor: col, fillOpacity: f.kind === 'keepclear' ? 0.07 : 0.1,
+            color: col, weight: isSel ? 2 : 1, opacity: isSel ? 0.9 : 0.55, fillColor: col, fillOpacity: isSel ? 0.12 : 0.05,
             dashArray: f.kind === 'keepclear' || f.kind === 'planned' || f.secret ? '6 4' : null
           }).on('click', pick).addTo(featureGroup);
         }
         if (f.x == null || f.z == null) return;
         if ((f.kind === 'wall' || f.kind === 'rail' || f.kind === 'passage') && f.points && f.points.length > 1 && !isSel) return; // the line is the feature
-        var k = KIND[f.kind] || KIND.place, s = k[2];
-        var icon = L.divIcon({ className: 'mk' + (isSel ? ' sel' : ''), iconSize: [44, 44], iconAnchor: [22, 22],
-          html: '<span class="dot" style="width:' + s + 'px;height:' + s + 'px;background:' + col + ';border-radius:' + k[3] + (f.kind === 'control' ? ';transform:rotate(45deg)' : '') + '"></span>' });
-        var m = L.marker(P(f.x + 0.5, f.z + 0.5), { icon: icon, title: f.name + ' (' + (f.kindLabel || f.kind) + ')', alt: f.name, keyboard: true, riseOnHover: true, zIndexOffset: isSel ? 1000 : 0 });
+        pts.push({ f: f, col: col, isSel: isSel, k: KIND[f.saved ? 'saved' : f.kind] || KIND.place, px: map.project(P(f.x + 0.5, f.z + 0.5), z) });
+      });
+      // cluster: below 2 px per block, markers within ~30 px share one bubble
+      var singles = [], clusters = {};
+      if (z < 1) {
+        var CELL = 30;
+        pts.forEach(function (p) {
+          if (p.isSel) { singles.push(p); return; }
+          var key = Math.floor(p.px.x / CELL) + ':' + Math.floor(p.px.y / CELL);
+          (clusters[key] = clusters[key] || []).push(p);
+        });
+        Object.keys(clusters).forEach(function (key) { if (clusters[key].length === 1) { singles.push(clusters[key][0]); delete clusters[key]; } });
+      } else singles = pts;
+      var boxes = [];
+      function hits(r) { for (var i = 0; i < boxes.length; i++) { var o = boxes[i]; if (r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h && o.y < r.y + r.h) return true; } return false; }
+      Object.keys(clusters).forEach(function (key) {
+        var g = clusters[key], sx = 0, sy = 0;
+        g.forEach(function (p) { sx += p.px.x; sy += p.px.y; });
+        var c = L.point(sx / g.length, sy / g.length);
+        boxes.push({ x: c.x - 14, y: c.y - 14, w: 28, h: 28 });
+        var m = L.marker(map.unproject(c, z), {
+          icon: L.divIcon({ className: 'mk-cl', iconSize: [44, 44], iconAnchor: [22, 22], html: '<span>' + g.length + '</span>' }),
+          title: g.length + ' places here: ' + g.slice(0, 6).map(function (p) { return p.f.name; }).join(', ') + (g.length > 6 ? '…' : '') + '. Click to zoom in.', keyboard: true
+        });
+        m.on('click', function () { map.fitBounds(L.latLngBounds(g.map(function (p) { return P(p.f.x + 0.5, p.f.z + 0.5); })).pad(0.4), { maxZoom: Math.max(z + 2, 1) }); });
+        m.addTo(featureGroup);
+      });
+      singles.forEach(function (p) { boxes.push({ x: p.px.x - 6, y: p.px.y - 6, w: 12, h: 12 }); });
+      singles.sort(function (a, b) { return (b.isSel - a.isSel) || (a.k[4] - b.k[4]) || a.f.name.localeCompare(b.f.name); });
+      singles.forEach(function (p) {
+        var f = p.f, k = p.k, s = k[2];
+        var pick = function () { select(f.id, false); };
+        var icon = L.divIcon({ className: 'mk' + (p.isSel ? ' sel' : ''), iconSize: [32, 32], iconAnchor: [16, 16],
+          html: '<span class="dot" style="width:' + s + 'px;height:' + s + 'px;background:' + p.col + ';border-radius:' + k[3] + (f.kind === 'control' ? ';transform:rotate(45deg)' : '') + '"></span>' });
+        var m = L.marker(P(f.x + 0.5, f.z + 0.5), { icon: icon, title: f.name + ' (' + (f.kindLabel || f.kind) + ')', alt: f.name, keyboard: true, riseOnHover: true, zIndexOffset: p.isSel ? 1000 : 0 });
         m.on('click', pick);
         m.on('keypress', function (e) { if (e.originalEvent.key === 'Enter' || e.originalEvent.key === ' ') pick(); });
-        var labelOn = show.labels && (isSel || (isMajor(f) && z >= -1) || z >= 2);
-        if (labelOn) m.bindTooltip(esc(f.name), { permanent: true, direction: 'bottom', offset: [0, 10], className: 'mp-label' + (isSel ? ' sel' : '') });
+        // label: by priority and zoom, only where it fits
+        var minZ = k[4] <= 2 ? -2 : k[4] === 3 ? -1 : 1;
+        if (visible('labels') && (p.isSel || z >= minZ)) {
+          var w = Math.min(220, 7 * f.name.length + 16), r = { x: p.px.x - w / 2, y: p.px.y + 8, w: w, h: 20 };
+          if (p.isSel || !hits(r)) { boxes.push(r); m.bindTooltip(esc(f.name), { permanent: true, direction: 'bottom', offset: [0, 6], className: 'mp-label' + (p.isSel ? ' sel' : '') }); }
+        }
         m.addTo(featureGroup); markers[f.id] = m;
       });
     }
@@ -347,7 +396,7 @@
     function select(id, pan) {
       selId = id; drawFeatures(); renderSel(); openCard('sel');
       var f = find(id);
-      if (pan && f && f.x != null && !fly(f.x, f.y, f.z, f.kind === 'control' ? 25 : 120)) map.setView(P(f.x + 0.5, f.z + 0.5), Math.max(map.getZoom(), f.kind === 'control' ? 3 : 0));
+      if (pan && f && f.x != null && !fly(f.x, f.y, f.z, f.kind === 'control' ? 22 : f.kind === 'tower' || f.saved ? 70 : 140)) map.setView(P(f.x + 0.5, f.z + 0.5), Math.max(map.getZoom(), f.kind === 'control' ? 4 : f.kind === 'tower' || f.saved ? 2 : 1));
     }
     function chip(text, col) { return '<span class="mp-chip" style="color:' + col + '">' + esc(text) + '</span>'; }
     function renderSel() {
@@ -418,7 +467,6 @@
     $('mp-controls').addEventListener('click', function (e) {
       var b = e.target.closest('.mp-show'); if (!b) return;
       var id = b.getAttribute('data-f');
-      if (!show.controls) { show.controls = true; renderLayers(); }
       select(id, true);
     });
     function renderUpdates() {
@@ -434,23 +482,80 @@
       if (id && find(id)) select(id, true);
       else toast('That one has been removed from the map.');
     });
-    function gotoOptions() {
-      var names = {};
-      allItems().forEach(function (f) { if (f.x != null) names[f.name] = 1; });
-      $('mp-goto-list').innerHTML = Object.keys(names).sort().map(function (n) { return '<option value="' + esc(n) + '"></option>'; }).join('');
+    // ── search: features, controls, areas and saved places by name and kind; "x z" or "x y z" jumps ──
+    var GROUPS = [['control', 'Controls'], ['gate', 'Gates'], ['area', 'Areas and buildings'], ['building', 'Areas and buildings'], ['tower', 'Towers'], ['saved', 'Your places'], ['place', 'Places']];
+    function groupOf(f) { for (var i = 0; i < GROUPS.length; i++) if (GROUPS[i][0] === f.kind) return GROUPS[i][1]; return 'Other'; }
+    function words(s) { return String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean); }
+    function near(a, b) {   // one typo allowed in words of 4+ letters
+      if (a === b) return true;
+      if (a.length < 4 || Math.abs(a.length - b.length) > 1) return false;
+      var i = 0, j = 0, e = 0;
+      while (i < a.length && j < b.length) { if (a[i] === b[j]) { i++; j++; continue; } if (++e > 1) return false; if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; } }
+      return e + (a.length - i) + (b.length - j) <= 1;
     }
-    $('mp-goto').addEventListener('submit', function (e) {
-      e.preventDefault();
-      var q = $('mp-goto-q').value.trim(); if (!q || !data) return;
+    function scoreOf(f, q, qw) {
+      var c = f.control || {}, nameW = words(f.name), extraW = words([f.kindLabel, f.kind, c.group, c.type, f.status, f.drill ? 'floor plans area' : '', f.saved ? 'saved place' : ''].join(' '));
+      var total = 0;
+      for (var i = 0; i < qw.length; i++) {
+        var t = qw[i], best = 0;
+        nameW.forEach(function (w) { if (w.indexOf(t) === 0) best = Math.max(best, 3); else if (w.indexOf(t) >= 0) best = Math.max(best, 2); else if (near(t, w)) best = Math.max(best, 1.5); });
+        if (!best) extraW.forEach(function (w) { if (w.indexOf(t) === 0 || near(t, w)) best = Math.max(best, 1); });
+        if (!best) return 0;
+        total += best;
+      }
+      if (f.name.toLowerCase().indexOf(q) === 0) total += 3;
+      return total;
+    }
+    var sIn = $('mp-search'), sOut = $('mp-results'), sActive = -1, sList = [];
+    function closeSearch() { sOut.hidden = true; sActive = -1; sIn.setAttribute('aria-expanded', 'false'); }
+    function runSearch() {
+      var q = sIn.value.trim().toLowerCase();
+      if (!q || !data) { closeSearch(); return; }
+      sList = [];
       var m = q.match(/^(-?\d+)[\s,]+(?:(-?\d+)[\s,]+)?(-?\d+)$/);
-      if (m) { var x = +m[1], z = +m[3]; if (fly(x, m[2] != null ? +m[2] : null, z)) return; map.setView(P(x + 0.5, z + 0.5), Math.max(map.getZoom(), 1)); $('mp-coords').textContent = 'x ' + x + '  ·  z ' + z; if (PHONE) $('mp-goto-q').blur(); return; }
-      var lq = q.toLowerCase(), all = allItems(), hit = null;
-      all.forEach(function (f) { if (!hit && f.x != null && f.name.toLowerCase() === lq) hit = f; });
-      all.forEach(function (f) { if (!hit && f.x != null && f.name.toLowerCase().indexOf(lq) >= 0) hit = f; });
-      if (!hit) { toast('Nothing called "' + q + '" on this map.', true); return; }
-      select(hit.id, true); if (PHONE) $('mp-goto-q').blur();
+      if (m) sList.push({ coords: true, x: +m[1], y: m[2] != null ? +m[2] : null, z: +m[3], name: 'Go to ' + m[1] + (m[2] != null ? ' ' + m[2] : '') + ' ' + m[3], group: 'Coordinates' });
+      var qw = words(q);
+      allItems().map(function (f) { return { f: f, s: f.x != null ? scoreOf(f, q, qw) : 0 }; }).filter(function (r) { return r.s > 0; })
+        .sort(function (a, b) { return b.s - a.s || a.f.name.localeCompare(b.f.name); }).slice(0, 40)
+        .forEach(function (r) { sList.push({ f: r.f, name: r.f.name, group: groupOf(r.f) }); });
+      if (!sList.length) { sOut.innerHTML = '<div class="mp-r-none">Nothing matches "' + esc(sIn.value.trim()) + '".</div>'; sOut.hidden = false; return; }
+      var order = []; sList.forEach(function (r) { if (order.indexOf(r.group) < 0) order.push(r.group); });
+      var flat = [];
+      sOut.innerHTML = order.map(function (g) {
+        return '<div class="mp-r-g">' + esc(g) + '</div>' + sList.filter(function (r) { return r.group === g; }).map(function (r) {
+          flat.push(r); var i = flat.length - 1, f = r.f, c = f && f.control;
+          var sub = r.coords ? '' : (c && c.group ? esc(c.group) + ' · ' : '') + f.x + ' ' + (f.y == null ? '' : f.y + ' ') + f.z;
+          return '<button type="button" class="mp-r" role="option" data-i="' + i + '" id="mp-r-' + i + '"><span class="mp-r-n">' + esc(r.name) + '</span>' + (sub ? '<span class="mp-r-s">' + sub + '</span>' : '') + '</button>';
+        }).join('');
+      }).join('');
+      sList = flat; sActive = 0; markActive(); sOut.hidden = false; sIn.setAttribute('aria-expanded', 'true');
+    }
+    function markActive() { [].forEach.call(sOut.querySelectorAll('.mp-r'), function (b) { var on = +b.getAttribute('data-i') === sActive; b.classList.toggle('on', on); if (on) { b.scrollIntoView({ block: 'nearest' }); sIn.setAttribute('aria-activedescendant', b.id); } }); }
+    function choose(i) {
+      var r = sList[i]; if (!r) return;
+      closeSearch(); sIn.blur();
+      if (r.coords) {
+        if (!fly(r.x, r.y, r.z, 60)) map.setView(P(r.x + 0.5, r.z + 0.5), Math.max(map.getZoom(), 2));
+        $('mp-coords').textContent = 'x ' + r.x + '  ·  z ' + r.z;
+        return;
+      }
+      select(r.f.id, true);
+    }
+    sIn.addEventListener('input', runSearch);
+    sIn.addEventListener('focus', function () { if (sIn.value.trim()) runSearch(); });
+    sIn.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (sActive < sList.length - 1) { sActive++; markActive(); } }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); if (sActive > 0) { sActive--; markActive(); } }
+      else if (e.key === 'Enter') { e.preventDefault(); choose(sActive < 0 ? 0 : sActive); }
+      else if (e.key === 'Escape') { closeSearch(); sIn.blur(); }
     });
-    load(true).then(gotoOptions);
+    sOut.addEventListener('mousedown', function (e) { var b = e.target.closest('.mp-r'); if (b) { e.preventDefault(); choose(+b.getAttribute('data-i')); } });
+    document.addEventListener('click', function (e) { if (!e.target.closest('.mp-search')) closeSearch(); });
+    document.addEventListener('keydown', function (e) {
+      var t = e.target || {}, n = (t.tagName || '').toUpperCase();
+      if (e.key === '/' && n !== 'INPUT' && n !== 'TEXTAREA' && n !== 'SELECT' && !t.isContentEditable) { e.preventDefault(); e.stopPropagation(); sIn.focus(); sIn.select(); }
+    }, true);
+    load(true);
     setInterval(function () { if (!document.hidden) load(false); }, 60000);
   }
 
