@@ -399,6 +399,9 @@
       if (!cs.length) { el.innerHTML = '<p class="muted" style="margin:0">No controls mapped in this world yet.</p>'; return; }
       var groups = {}, order = [];
       cs.forEach(function (f) { var g = (f.control && f.control.group) || 'Other'; if (!groups[g]) { groups[g] = []; order.push(g); } groups[g].push(f); });
+      var rank = function (g) { return /gate|postern|harbour/i.test(g) ? 0 : /tower/i.test(g) ? 1 : 2; };
+      order.sort(function (a, b) { return rank(a) - rank(b) || a.localeCompare(b); });
+      order.forEach(function (g) { groups[g].sort(function (a, b) { return ((b.control || {}).verified !== false) - ((a.control || {}).verified !== false) || ((a.control || {}).type === 'lever' ? 0 : 1) - ((b.control || {}).type === 'lever' ? 0 : 1) || a.name.localeCompare(b.name); }); });
       el.innerHTML = order.map(function (g) {
         return '<details class="mp-cg"><summary><span>' + esc(g) + '</span><span class="mp-hint">' + groups[g].length + '</span></summary>' + groups[g].map(function (f) {
           var c = f.control || {};
