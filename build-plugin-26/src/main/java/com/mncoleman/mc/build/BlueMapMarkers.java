@@ -48,15 +48,29 @@ final class BlueMapMarkers {
         } catch (Exception e) { plugin.getLogger().warning("bluemap-markers.json unreadable: " + e); }
         BlueMapAPI.onEnable(api -> {
             int n = 0;
-            for (Map.Entry<String, JsonObject> e : LAST.entrySet()) n += apply(api, e.getKey(), e.getValue());
+            for (Map.Entry<String, JsonObject> e : LAST.entrySet()) {
+                try { n += apply(api, e.getKey(), e.getValue()); }
+                catch (Exception ex) { plugin.getLogger().warning("BlueMap markers for " + e.getKey() + " skipped: " + ex); }
+            }
             plugin.getLogger().info("BlueMap enabled: applied " + n + " Map-tab markers");
         });
     }
 
-    static JsonObject set(ClaudeBuildPlugin plugin, JsonObject body) throws Exception {
+    static synchronized JsonObject set(ClaudeBuildPlugin plugin, JsonObject body) throws Exception {
         String map = body.has("map") ? body.get("map").getAsString() : null;
         if (map == null || !map.matches("[A-Za-z0-9_-]{1,64}")) throw new IllegalArgumentException("missing or bad 'map'");
         if (!body.has("sets") || !body.get("sets").isJsonArray()) throw new IllegalArgumentException("'sets' must be an array");
+        // Build every set first: a payload that doesn't parse is refused whole, before
+        // it replaces what's stored or touches BlueMap.
+        int bad = 0;
+        for (JsonElement se : body.getAsJsonArray("sets")) {
+            if (!se.isJsonObject()) throw new IllegalArgumentException("each set must be an object");
+            JsonObject s = se.getAsJsonObject();
+            if (s.has("markers") && !s.get("markers").isJsonArray()) throw new IllegalArgumentException("'markers' must be an array");
+            if (s.has("markers")) for (JsonElement me : s.getAsJsonArray("markers")) {
+                try { marker(me.getAsJsonObject()); } catch (Exception ex) { bad++; }
+            }
+        }
         LAST.put(map, body);
         if (store != null) {
             JsonObject all = new JsonObject();
@@ -70,6 +84,7 @@ final class BlueMapMarkers {
         BlueMapAPI api = BlueMapAPI.getInstance().orElse(null);
         o.addProperty("bluemap_enabled", api != null);
         if (api != null) o.addProperty("applied", apply(api, map, body));
+        o.addProperty("skipped_markers", bad);
         return o;
     }
 
@@ -78,9 +93,10 @@ final class BlueMapMarkers {
         BlueMapMap map = api.getMap(mapId).orElse(null);
         if (map == null) return 0;
         Map<String, MarkerSet> sets = map.getMarkerSets();
-        sets.keySet().removeIf(k -> k.startsWith(PREFIX));
+        Map<String, MarkerSet> built = new java.util.LinkedHashMap<>();
         int n = 0;
         for (JsonElement se : body.getAsJsonArray("sets")) {
+          try {
             JsonObject s = se.getAsJsonObject();
             MarkerSet set = MarkerSet.builder()
                 .label(str(s, "label", "Map"))
@@ -97,8 +113,12 @@ final class BlueMapMarkers {
                     n++;
                 } catch (Exception ignored) { /* one bad marker never sinks the set */ }
             }
-            sets.put(PREFIX + str(s, "id", "set"), set);
+            built.put(PREFIX + str(s, "id", "set"), set);
+          } catch (Exception ex) { /* one bad set never sinks the others */ }
         }
+        // swap in one go, so the map never shows a half-cleared state for long
+        sets.keySet().removeIf(k -> k.startsWith(PREFIX) && !built.containsKey(k));
+        sets.putAll(built);
         return n;
     }
 
@@ -116,6 +136,7 @@ final class BlueMapMarkers {
                 for (int i = 0; i < v.length; i++) { JsonArray p = pts.get(i).getAsJsonArray(); v[i] = new Vector3d(p.get(0).getAsDouble(), p.get(1).getAsDouble(), p.get(2).getAsDouble()); }
                 LineMarker.Builder b = LineMarker.builder().label(label).line(new Line(v)).lineColor(line).lineWidth(width).depthTestEnabled(false);
                 if (detail != null) b.detail(detail);
+                if (m.has("maxDistance")) b.maxDistance(m.get("maxDistance").getAsDouble());
                 return b.build();
             }
             case "box": {
@@ -124,6 +145,7 @@ final class BlueMapMarkers {
                 float minY = m.has("minY") ? m.get("minY").getAsFloat() : 60f, maxY = m.has("maxY") ? m.get("maxY").getAsFloat() : minY + 1;
                 ExtrudeMarker.Builder b = ExtrudeMarker.builder().label(label).shape(sh, minY, maxY).lineColor(line).fillColor(fill).lineWidth(Math.max(1, width - 1)).depthTestEnabled(false);
                 if (detail != null) b.detail(detail);
+                if (m.has("maxDistance")) b.maxDistance(m.get("maxDistance").getAsDouble());
                 return b.build();
             }
             case "area": {
@@ -132,6 +154,7 @@ final class BlueMapMarkers {
                 float y = m.has("y") ? m.get("y").getAsFloat() : 64f;
                 ShapeMarker.Builder b = ShapeMarker.builder().label(label).shape(sh, y).lineColor(line).fillColor(fill).lineWidth(Math.max(1, width - 1)).depthTestEnabled(false);
                 if (detail != null) b.detail(detail);
+                if (m.has("maxDistance")) b.maxDistance(m.get("maxDistance").getAsDouble());
                 return b.build();
             }
             default: {

@@ -122,11 +122,11 @@ function markersFor(mv: string) {
       const out: any[] = [];
       const yDef = f.y ?? (f.box ? f.box.to[1] : 70);
       if (f.points && f.points.length > 1) {
-        out.push({ id: f.slug + "-line", type: "line", label: esc(f.name), detail: detailHtml(f, mv), color, width: f.kind === "wall" ? 4 : 3,
+        out.push({ id: f.slug + "-line", type: "line", label: esc(f.name), detail: detailHtml(f, mv), color, width: f.kind === "wall" ? 4 : 3, maxDistance: f.kind === "wall" ? 5000 : MAX_DIST[f.kind] ?? 1500,
           points: f.points.map((p) => p.length === 3 ? [p[0] + 0.5, p[1] + 1.5, p[2] + 0.5] : [p[0] + 0.5, yDef + 1.5, p[1] + 0.5]) });
       }
       if (f.box) {
-        out.push({ id: f.slug + "-area", type: "area", label: esc(f.name), detail: detailHtml(f, mv), color, fill: f.kind === "keepclear" ? 0.08 : 0.1, width: 2,
+        out.push({ id: f.slug + "-area", type: "area", label: esc(f.name), detail: detailHtml(f, mv), color, fill: f.kind === "keepclear" ? 0.08 : 0.1, width: 2, maxDistance: Math.min(MAX_DIST[f.kind] ?? 1500, 1500),
           rect: [f.box.from[0], f.box.from[2], f.box.to[0] + 1, f.box.to[2] + 1], y: (f.y ?? f.box.from[1]) + 0.5 });
       }
       const lineOnly = (f.kind === "wall" || f.kind === "rail" || f.kind === "passage") && f.points && f.points.length > 1;
