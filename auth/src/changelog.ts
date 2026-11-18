@@ -144,7 +144,7 @@ function feedHtml(): string {
       b.textContent=o?"Show less":"See older updates (${older})";if(!o)f.scrollTop=0;});})();</script>` : ""}`;
 }
 
-const SRV_NOTE: Record<ServerId, string> = { "18": "Classic 1.8 · Paper 1.12.2", "26": "Modern Minecraft 26 · Paper 26.2" };
+const SRV_NOTE: Record<ServerId, string> = { "18": "Classic 1.8 · Paper 1.12.2", "26": "Modern Minecraft 26 · Paper 26.3" };
 
 // ── Home (/) ──────────────────────────────────────────────────────────────────
 // The Play page, server-rendered through shell() (it used to be the static
@@ -176,7 +176,7 @@ async function homePage(me: { sub: string; username: string; admin: boolean }): 
         <span class="chip${n ? " live" : ""}">${n ? '<span class="dot on"></span>' : ""}${n} online</span></div>
       <div class="srv-b">${play}
         <div class="sect">Server address <span style="text-transform:none;letter-spacing:0">(only if it ever asks)</span></div>
-        <code data-copy title="Click to copy">wss://${esc(host)}/${s === "26" ? "26" : ""}</code>
+        <code data-copy title="Click to copy">${esc(s === "26" && config.play26WsUrl ? config.play26WsUrl : `wss://${host}/${s === "26" ? "26" : ""}`)}</code>
         ${here === s ? `<p class="hint" style="margin:.7rem 0 0"><span class="dot on"></span>You're on this server right now.</p>` : ""}
       </div></section>`;
   };

@@ -4,7 +4,7 @@
 //
 //   "18" — Paper 1.12.2 for the 1.8 Eaglercraft client (container mc-eagler).
 //          Legacy command dialect: Multiverse 2.5, WorldGuard 6, `execute P ~ ~ ~`.
-//   "26" — Paper 26.2 for the 26.x Eaglercraft client (container mc-eagler26).
+//   "26" — Paper 26.3 for the 26.x Eaglercraft client (container mc-eagler26).
 //          Modern dialect: Multiverse 5 (`--seed`, `mv modify`, OTP confirm),
 //          `execute as/at`, namespaced block ids, worlds under world/dimensions.
 //

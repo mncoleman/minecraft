@@ -158,7 +158,7 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
   const onCount = (s: ServerId) => onlineAll.filter((p) => p.server === s).length;
   const allActive = listAllWorlds().filter((w) => w.status === "active" && on.has(w.server) && !isLobby(w.mv_world_name));
   const worldsOn = (s: ServerId) => allActive.filter((w) => w.server === s).length + (lobbies.some((l) => l.server === s) ? 1 : 0);
-  const SRV_NOTE: Record<ServerId, string> = { "18": "Classic 1.8 client · Paper 1.12.2", "26": "Modern Minecraft 26 · Paper 26.2" };
+  const SRV_NOTE: Record<ServerId, string> = { "18": "Classic 1.8 client · Paper 1.12.2", "26": "Modern Minecraft 26 · Paper 26.3" };
 
   const serverPanel = (s: ServerId) => {
     const lobby = lobbies.find((l) => l.server === s);
