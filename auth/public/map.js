@@ -89,7 +89,7 @@
     var dflt = !PHONE && (el.getAttribute('data-card') === 'sel' || el.getAttribute('data-card') === 'lever');
     if (el.getAttribute('data-card') === 'help') {   // open on a first visit, folded after that
       var seen = null; try { seen = localStorage.getItem('mp-help-seen:' + B.mode); localStorage.setItem('mp-help-seen:' + B.mode, '1'); } catch (e) { /* private mode */ }
-      dflt = !seen;
+      dflt = !seen && !PHONE;   // on a phone it would cover the map: the ? button opens it
     }
     setCard(el, saved === null ? dflt : saved === '1', false);
     el.querySelector('.mpc-h').addEventListener('click', function () { setCard(el, el.classList.contains('collapsed'), true); });

@@ -211,4 +211,8 @@
 @media (max-width:700px){
   .mp-search{order:-1;flex:1 1 100%;max-width:none}
   .mp-search kbd{display:none}
+  /* one row under the search: world, view switch, cards, help. Status and Render live on desktop. */
+  .mpf-top .mp-status,#mp-render{display:none}
+  .mpf-top .mp-world{flex:1 1 0;min-width:0}
+  .mpf-top .mp-world select{width:100%}
 }
