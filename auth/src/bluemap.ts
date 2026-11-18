@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "
 import { currentSession } from "./session.ts";
 import { db } from "./db.ts";
 import { SERVERS, isEnabled, type ServerId } from "./servers.ts";
-import { getWorldByMv } from "./worlds.ts";
+import { getWorldByMv, dimensionKey } from "./worlds.ts";
 import { rcon } from "./rcon.ts";
 import { plugin } from "./buildapi.ts";
 import { listFeatures, secretMasks, setFeatureListener, KINDS, SECRETS_PRIVATE, type Feature } from "./map.ts";
@@ -41,7 +41,7 @@ function mapConf(mv: string): string {
   return `## Written by mc-auth (auth/src/bluemap.ts). Edits here are overwritten.
 ## Secret passages are subtracted only while the panel keeps secrets private.
 world: "world"
-dimension: ${hstr("minecraft:" + mv.toLowerCase())}
+dimension: ${hstr(dimensionKey(mv))}
 name: ${hstr(w?.name || mv)}
 sorting: 0
 start-pos: { x: ${anchor?.x ?? 0}, z: ${anchor?.z ?? 0} }
@@ -114,16 +114,16 @@ function markersFor(mv: string) {
       const out: any[] = [];
       const yDef = f.y ?? (f.box ? f.box.to[1] : 70);
       if (f.points && f.points.length > 1) {
-        out.push({ id: f.slug + "-line", type: "line", label: f.name, detail: detailHtml(f, mv), color, width: f.kind === "wall" ? 4 : 3,
+        out.push({ id: f.slug + "-line", type: "line", label: esc(f.name), detail: detailHtml(f, mv), color, width: f.kind === "wall" ? 4 : 3,
           points: f.points.map((p) => p.length === 3 ? [p[0] + 0.5, p[1] + 1.5, p[2] + 0.5] : [p[0] + 0.5, yDef + 1.5, p[1] + 0.5]) });
       }
       if (f.box) {
-        out.push({ id: f.slug + "-area", type: "area", label: f.name, detail: detailHtml(f, mv), color, fill: f.kind === "keepclear" ? 0.08 : 0.1, width: 2,
+        out.push({ id: f.slug + "-area", type: "area", label: esc(f.name), detail: detailHtml(f, mv), color, fill: f.kind === "keepclear" ? 0.08 : 0.1, width: 2,
           rect: [f.box.from[0], f.box.from[2], f.box.to[0] + 1, f.box.to[2] + 1], y: (f.y ?? f.box.from[1]) + 0.5 });
       }
       const lineOnly = (f.kind === "wall" || f.kind === "rail" || f.kind === "passage") && f.points && f.points.length > 1;
       if (f.x !== null && f.z !== null && !lineOnly) {
-        out.push({ id: f.slug, type: "poi", label: f.name, detail: detailHtml(f, mv), pos: [f.x + 0.5, (f.y ?? yDef) + 1, f.z + 0.5],
+        out.push({ id: f.slug, type: "poi", label: esc(f.name), detail: detailHtml(f, mv), pos: [f.x + 0.5, (f.y ?? yDef) + 1, f.z + 0.5],
           icon: `/map/assets/poi/${f.kind}.svg`, maxDistance: f.kind === "tower" || f.kind === "place" ? 1500 : 100000 });
       }
       return out;
@@ -141,12 +141,15 @@ export async function pushMarkers(mv: string): Promise<{ ok: boolean; applied?: 
 // Feature changes: re-push markers (debounced); a secret change also rewrites the
 // render mask and reloads BlueMap so the passage is cut out of the 3D view.
 const pending = new Map<string, ReturnType<typeof setTimeout>>();
+const pendingSecret = new Set<string>();
 setFeatureListener((srv, mv, secretChanged) => {
   if (srv !== SRV) return;
+  if (secretChanged) pendingSecret.add(mv);  // sticky: a later plain change in the window keeps it
   clearTimeout(pending.get(mv));
   pending.set(mv, setTimeout(async () => {
     pending.delete(mv);
-    if (secretChanged && syncBlueMapConfigs()) await reloadBlueMap();
+    const secret = pendingSecret.delete(mv);
+    if ((secret || !existsSync(`${bmDir()}/maps/${mv}.conf`)) && syncBlueMapConfigs()) await reloadBlueMap();
     await pushMarkers(mv);
   }, 2000));
 });
@@ -184,6 +187,7 @@ export function mountBlueMap(app: Hono): void {
     let rel = c.req.path.replace(/^\/map\/3d\/?/, "");
     if (rel === "") rel = "index.html";
     if (rel.includes("..") || rel.includes("//")) return c.text("bad request", 400);
+    if (/\/live\/players/.test(rel)) return c.text("not found", 404); // positions stay friends-only (panel rule)
     const mm = SAFE_MAP.exec(rel);
     if (!(SAFE_STATIC.test(rel) || (mm && mappedWorlds().includes(mm[1])))) return c.text("not found", 404);
     const headers: Record<string, string> = {};
@@ -196,7 +200,8 @@ export function mountBlueMap(app: Hono): void {
     }
     const out = new Headers();
     for (const h of PASS_HEADERS) { const v = r.headers.get(h); if (v) out.set(h, v); }
-    out.set("Cache-Control", rel.startsWith("maps/") ? "private, max-age=30" : "private, max-age=3600");
+    out.set("Cache-Control", rel.startsWith("maps/") || rel === "settings.json" || rel === "index.html" ? "private, max-age=30" : "private, max-age=3600");
+    out.set("Vary", "Accept-Encoding");
     out.set("X-Content-Type-Options", "nosniff");
     return new Response(r.status === 304 ? null : r.body, { status: r.status, headers: out });
   };

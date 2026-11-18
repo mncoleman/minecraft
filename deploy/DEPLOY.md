@@ -233,3 +233,18 @@ Command dialect differences the panel handles for 26: Multiverse 5
 `mvtp … --unsafe`), `execute as <p> at @s run …`, console `tp <p> x y z` wrapped in
 `execute in minecraft:<world> run` (a bare console tp lands in the lobby's dimension), and extra worlds live under
 `world/dimensions/minecraft/<name>`. Upload/Register stay 1.8-only.
+
+## BlueMap (3D map behind the Map tab, 26 only)
+
+- Jar: pinned in `server26/scripts/fetch-plugins.sh` (BlueMap 5.29, paper).
+- Configs: **copy before the first start** (so BlueMap never generates default
+  maps for every world, and never runs with live player markers):
+  `sudo mkdir -p server26/data/plugins/BlueMap/maps && sudo cp server26/bluemap/*.conf server26/data/plugins/BlueMap/ && sudo chown -R 1001:1001 server26/data/plugins/BlueMap`
+  then check `live-player-markers: false` in `data/plugins/BlueMap/plugin.conf`.
+- `maps/<world>.conf` is written by mc-auth (`auth/src/bluemap.ts`) for each 26
+  world whose Map is on; don't hand-edit it. `accept-download: true` in core.conf
+  was accepted by the owner on 2026-11-17.
+- Port 8100 is never published; mc-auth proxies it at `/map/3d/` (signed-in only,
+  `live/players*` always refused). One render thread at priority 1: watch
+  `rcon-cli tps` during a full render. `rcon-cli bluemap` shows progress.
+
