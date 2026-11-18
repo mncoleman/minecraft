@@ -210,6 +210,15 @@ Nothing here touches `mc-eagler`.
    Multiverse: in `data/plugins/Multiverse-Core/config.yml` set
    `enforce-gamemode: false` (as on 1.8), then `mv reload`. Otherwise every world
    change forces the world's gamemode (all 26 worlds are survival).
+   Extras (Matthew, 2026-11-18): `pause_menu.yml` → `enable_custom_pause_menu: true`,
+   the Server Info button becomes "Panel" (`button_mode_open_new_tab: true`,
+   `button_mode_embed_file: false`, URL `https://minecraft.mncoleman.com/`), the
+   Discord button becomes "Map" (`https://minecraft.mncoleman.com/map`), and both
+   `icon_background_*` entries are blanked (they default to `test_image.png`).
+   Server icon: `auth/public/email-logo.png` resized to 64×64, copied to
+   `data/server-icon.png` and `data/plugins/EaglercraftXServer/server-icon.png`.
+   Gamerules in every world (`execute in minecraft:<world> run gamerule …`):
+   `keep_inventory true`, `players_sleeping_percentage 1`. New worlds need them too.
 6. **Plugins**: `cd plugin && bash build.sh 26` (same EaglerJwtAuth jar as 1.8) and
    `cd build-plugin-26 && bash build.sh`; then `docker restart mc-eagler26`.
 7. **mc-auth**: add `-v /home/ubuntu/minecraft/server26/data:/gamedata26` to the run
