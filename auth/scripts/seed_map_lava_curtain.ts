@@ -29,7 +29,7 @@ const F: FeatureInput[] = [
   { slug: "ctl-lava-banquet", kind: "control", name: "Lava Curtain: banquet button", status: "Checked", pos: [124, 79, 265],
     control: { group: "Fortress", type: "button", verified: true, reach: "Banquet hall side of the doorway.", on: "Each press toggles the lava curtain on or off.", drives: "The same latch and curtain", state: curtain } },
   { slug: "ctl-lava-drain", kind: "control", name: "Lava Curtain drain hold (automatic)", status: "Checked", pos: [132, 78, 266],
-    control: { group: "Fortress", type: "auto", verified: true, reach: "Under the curtain, in the doorway floor.", on: "Opens under the falling lava and stays open about 80 seconds after the curtain is switched off, so the lava drains. Nothing to switch." } },
+    control: { group: "Fortress", type: "auto", verified: true, reach: "Under the curtain, in the doorway floor.", on: "Opens under the falling lava and stays open about 40 seconds after the curtain is switched off, so the lava drains. Nothing to switch." } },
 ];
 let added = 0;
 for (const f of F) { if (!getFeature(SRV, MV, String(f.slug))) { addFeature(SRV, MV, f, BY, "Lava seed."); added++; } }
