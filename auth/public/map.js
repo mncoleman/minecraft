@@ -176,7 +176,25 @@
       if (three && !frame) {
         frame = document.createElement('iframe');
         frame.id = 'mp-3d'; frame.className = 'mpf-3d'; frame.title = '3D map of ' + (data ? data.world.name : B.mv);
-        frame.src = '/map/3d/#' + B.mv;
+        var anchor = null;
+        (data ? data.features : []).forEach(function (f) { if (!anchor && f.kind === 'area' && f.x != null) anchor = f; });
+        frame.src = '/map/3d/#' + B.mv + (anchor ? ':' + (anchor.x + 0.5) + ':' + (anchor.y || 80) + ':' + (anchor.z + 0.5) + ':450:0:0.75:0:0:perspective' : '');
+        frame.addEventListener('load', function () {
+          try {
+            var d = frame.contentDocument, st = d.createElement('style'), lastPop = null;
+            // BlueMap's own control bar moves to the bottom, clear of the floating cards.
+            st.textContent = '#app .control-bar{top:auto!important;bottom:8px!important;left:8px!important;right:56px!important}';
+            d.head.appendChild(st);
+            // A BlueMap marker popup carries data-mp-f=<feature id>: show that feature in Selected.
+            new MutationObserver(function () {
+              var el = d.querySelector('[data-mp-f]'), slug = el ? el.getAttribute('data-mp-f') : null;
+              if (slug === lastPop) return;
+              lastPop = slug;
+              if (!slug || !data) return;
+              data.features.forEach(function (f) { if (f.slug === slug) { selId = f.id; renderSel(); openCard('sel'); } });
+            }).observe(d.body, { childList: true, subtree: true });
+          } catch (e) { /* not same-origin (should not happen) */ }
+        });
         $('mpf').insertBefore(frame, $('mp-map').nextSibling);
       }
       if (frame) frame.hidden = !three;

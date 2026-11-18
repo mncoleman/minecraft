@@ -103,7 +103,7 @@ const SETS: Array<[string, string, (f: Feature) => boolean]> = [
 function esc(s: string): string { return (s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!)); }
 function detailHtml(f: Feature, mv: string): string {
   const drill = f.box && f.floors ? `<div style="margin-top:6px"><a href="/map/26/${mv}/area/${encodeURIComponent(f.slug)}" target="_top">Open floor plans and power</a></div>` : "";
-  return `<div style="max-width:260px"><div style="font-weight:700">${esc(f.name)}</div><div style="opacity:.75;font-size:.85em">${esc(KINDS[f.kind]?.label || f.kind)}${f.status ? " · " + esc(f.status) : ""}</div>${f.detail ? `<div style="margin-top:4px">${esc(f.detail)}</div>` : ""}${drill}</div>`;
+  return `<div style="max-width:260px" data-mp-f="${esc(f.slug)}"><div style="font-weight:700">${esc(f.name)}</div><div style="opacity:.75;font-size:.85em">${esc(KINDS[f.kind]?.label || f.kind)}${f.status ? " · " + esc(f.status) : ""}</div>${f.detail ? `<div style="margin-top:4px">${esc(f.detail)}</div>` : ""}${drill}</div>`;
 }
 function markersFor(mv: string) {
   const fs = listFeatures(SRV, mv, !SECRETS_PRIVATE); // secret ones only when secrets are public
