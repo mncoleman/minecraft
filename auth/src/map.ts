@@ -798,7 +798,7 @@ export function mountMap(app: Hono): void {
 `)}
     ${mapCard("sel", "Selected", `<div id="mp-sel"><p class="muted" style="margin:0">Click a tower, gate, building or place on the map.</p></div>`)}
     ${mapCard("goto", "Go to", `<form id="mp-goto" class="mp-goto" autocomplete="off"><label class="sr" for="mp-goto-q">Place, feature or coordinates</label><input id="mp-goto-q" list="mp-goto-list" placeholder="North Gate, or x z" enterkeyhint="go"/><datalist id="mp-goto-list"></datalist><button type="submit" class="btn-primary">Go</button></form><p class="hint" style="margin:.45rem 0 0;font-size:.78rem">A saved place, a feature, or coordinates like <code>140 260</code>.</p>`)}
-    ${mapCard("controls", "Controls", `<p class="hint" style="margin:0 0 .5rem;font-size:.8rem">No switch to look for: the night lamps on every wall and tower crown come on at dusk (daylight sensors), and the gate and postern motion lights react to movement.</p><div id="mp-controls"><p class="muted" style="margin:0">Loading…</p></div>`)}
+    ${mapCard("controls", "Controls", `<p class="hint" style="margin:0 0 .5rem;font-size:.8rem">No switch to look for: the night lamps on every wall and tower crown, the lighthouse lantern rings and balcony beacons, and the harbour merlons come on at dusk (daylight sensors); the gate and postern motion lights react to movement; the lighthouse lens is always lit.</p><div id="mp-controls"><p class="muted" style="margin:0">Loading…</p></div>`)}
   </div>
   <div class="mpf-col mpf-right">
     ${mapCard("layers", "Layers", `<div class="mp-layers" id="mp-layers"></div>`)}
