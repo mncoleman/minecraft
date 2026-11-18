@@ -161,3 +161,27 @@
 .mpf-3d{position:absolute;inset:0;width:100%;height:100%;border:0;z-index:1;background:#000}
 .mpf.three .mpf-map{visibility:hidden}
 .mpf.three .mpc[data-card="layers"],.mpf.three .mpc[data-card="key"],.mpf.three .mpf-coords{display:none}
+/* How to use + Controls */
+.mpf-q{width:40px;justify-content:center;padding:0;font-weight:800;font-size:1rem}
+.mp-help p{margin:0 0 .55rem;font-size:.84rem;line-height:1.45;color:#c2cad6}
+.mp-help p b{display:block;color:var(--text);font-size:.8rem;letter-spacing:.01em}
+.mp-help .k{display:inline-block;min-width:1.4em;text-align:center;font:700 .74rem var(--mono);border:1px solid var(--line2);border-radius:5px;padding:0 .3rem;background:var(--sunk);color:var(--text)}
+.mp-legend{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.3rem .6rem;font-size:.76rem;color:#b9c1cc;border-top:1px solid var(--line);padding-top:.55rem}
+.mp-legend span{display:flex;align-items:center;gap:.4rem;min-width:0}
+.mp-legend .lg{width:11px;height:11px;border-radius:50%;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.5)}
+.mp-legend .lg.sq{border-radius:2px}.mp-legend .lg.dm{border-radius:1px;transform:rotate(45deg)}
+.mp-cg{border-top:1px solid var(--line)}
+.mp-cg summary{display:flex;justify-content:space-between;align-items:center;gap:.5rem;min-height:40px;cursor:pointer;font-weight:650;font-size:.88rem;list-style:none}
+.mp-cg summary::-webkit-details-marker{display:none}
+.mp-cg summary::after{content:"›";color:var(--dim);margin-left:.4rem;transition:transform .15s}
+.mp-cg[open] summary::after{transform:rotate(90deg)}
+.mp-cg summary .mp-hint{margin-left:auto}
+.mp-ci{background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:.5rem .6rem;margin:0 0 .45rem}
+.mp-ci-h{display:flex;justify-content:space-between;gap:.5rem;align-items:center}
+.mp-ci-h b{font-size:.86rem;min-width:0;overflow-wrap:anywhere}
+.mp-ci-t{font-size:.8rem;color:#c2cad6;margin-top:.2rem}
+.mp-ci-t b{color:var(--muted);font:700 .62rem var(--mono);letter-spacing:.1em;text-transform:uppercase;margin-right:.3rem}
+.mp-show{margin-top:.4rem;min-height:36px;padding:0 .7rem;font-size:.8rem;background:#1a2029}
+.mp-ctl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.25rem .6rem;margin:0 0 .7rem;font-size:.84rem}
+.mp-ctl dt{font:700 .62rem/1.9 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.mp-ctl dd{margin:0;color:#c2cad6}

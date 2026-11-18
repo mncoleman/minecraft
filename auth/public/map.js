@@ -85,8 +85,19 @@
   document.querySelectorAll('.mpc').forEach(function (el) {
     var saved = null;
     try { saved = localStorage.getItem(cardKey(el.getAttribute('data-card'))); } catch (e) { /* private mode */ }
-    setCard(el, saved === null ? !PHONE : saved === '1', false);
+    var dflt = !PHONE;
+    if (el.getAttribute('data-card') === 'help') {   // open on a first visit, folded after that
+      var seen = null; try { seen = localStorage.getItem('mp-help-seen:' + B.mode); localStorage.setItem('mp-help-seen:' + B.mode, '1'); } catch (e) { /* private mode */ }
+      dflt = !seen;
+    }
+    setCard(el, saved === null ? dflt : saved === '1', false);
     el.querySelector('.mpc-h').addEventListener('click', function () { setCard(el, el.classList.contains('collapsed'), true); });
+  });
+  var helpBtn = $('mp-help-btn');
+  if (helpBtn) helpBtn.addEventListener('click', function () {
+    var el = document.querySelector('.mpc[data-card="help"]'); if (!el) return;
+    $('mpf').classList.remove('nocards'); if ($('mpf-cards')) { $('mpf-cards').textContent = 'Hide cards'; $('mpf-cards').setAttribute('aria-pressed', 'false'); }
+    setCard(el, true, true); el.scrollIntoView({ block: 'nearest' }); el.querySelector('.mpc-h').focus();
   });
   var cardsBtn = $('mpf-cards');
   if (cardsBtn) cardsBtn.addEventListener('click', function () {
@@ -137,15 +148,15 @@
       building: ['#ffb454', 'buildings', 12, '50%'], area: ['#ffb454', 'buildings', 12, '3px'],
       passage: ['#c08cff', 'underground', 10, '50%'], rail: ['#c08cff', 'underground', 10, '50%'],
       place: ['#5aa9ff', 'places', 10, '50%'], planned: ['#ffd166', 'planned', 12, '3px'], keepclear: ['#ff6b6b', 'keepclear', 12, '50%'],
-      saved: ['#5aa9ff', 'places', 10, '50%']
+      saved: ['#5aa9ff', 'places', 10, '50%'], control: ['#e3b34a', 'controls', 9, '1px']
     };
     var SECRET = '#ff8ad8';
     var LAYERS = [['walls', 'Walls, towers, gates', '#46d17f'], ['buildings', 'Buildings and areas', '#ffb454'], ['places', 'Places', '#5aa9ff'],
       ['underground', 'Underground and rails', '#c08cff'], ['planned', 'Planned', '#ffd166'], ['keepclear', 'Keep clear', '#ff6b6b'],
-      ['secret', 'Secret passages', SECRET], ['labels', 'Labels', '#e6e9ee'], ['grid', 'Grid', '#8b95a3']];
+      ['controls', 'Controls (levers, buttons)', '#e3b34a'], ['secret', 'Secret passages', SECRET], ['labels', 'Labels', '#e6e9ee'], ['grid', 'Grid', '#8b95a3']];
     var KEY = [['Grass', 'rgb(112,157,49)'], ['Trees', 'rgb(0,109,0)'], ['Cherry trees', 'rgb(213,112,145)'], ['Water', 'rgb(56,56,224)'], ['Sand and birch', 'rgb(217,205,143)'],
       ['Stone and cobble', 'rgb(99,99,99)'], ['Snow', 'rgb(224,224,224)'], ['Dirt and paths', 'rgb(133,96,68)'], ['Deepslate (walls)', 'rgb(88,88,88)'], ['Copper and lamps', 'rgb(190,112,45)']];
-    var show = { walls: true, buildings: true, places: true, underground: true, planned: true, keepclear: true, secret: true, labels: true, grid: false };
+    var show = { walls: true, buildings: true, places: true, underground: true, planned: true, keepclear: true, controls: true, secret: true, labels: true, grid: false };
     try { var saved = JSON.parse(sessionStorage.getItem('mp-layers') || 'null'); if (saved) for (var k in saved) if (k in show) show[k] = !!saved[k]; } catch (e) { /* private mode */ }
     var data = null, selId = null, tiles = null, gridLayer = null, featureGroup = L.layerGroup(), markers = {}, fitted = false, pollT = null;
 
@@ -161,6 +172,7 @@
     function layerOf(f) {
       if (f.secret) return 'secret';
       var l = (KIND[f.kind] || KIND.place)[1];
+      if (f.kind === 'control') return 'controls';
       if (f.underground && l !== 'planned' && l !== 'keepclear') return 'underground';
       return l;
     }
@@ -213,16 +225,18 @@
       if (!three) setTimeout(function () { map.invalidateSize(); }, 50);
     }
     $('mp-view').addEventListener('click', function () { setView(view === '3d' ? '2d' : '3d'); });
-    function fly(x, y, z) {
+    function fly(x, y, z, dist) {
       if (view !== '3d' || !frame) return false;
-      try { frame.contentWindow.location.hash = B.mv + ':' + (x + 0.5) + ':' + (y == null ? 80 : y) + ':' + (z + 0.5) + ':120:0:0.9:0:0:perspective'; frame.focus(); return true; } catch (e) { return false; }
+      try { frame.contentWindow.location.hash = B.mv + ':' + (x + 0.5) + ':' + (y == null ? 80 : y) + ':' + (z + 0.5) + ':' + (dist || 120) + ':0:0.9:0:0:perspective'; return true; } catch (e) { return false; }
     }
     function load(first) {
       return getJ(B.api).then(function (j) {
         if (j.error) { $('mp-status').textContent = j.error; $('mp-status').className = 'mp-status err'; return; }
         data = j;
         if (first) { var pref = null; try { pref = localStorage.getItem('mp-view:' + B.srv + '/' + B.mv); } catch (e) { /* private mode */ } setView(data.bluemap && pref !== '2d' ? '3d' : '2d'); }
-        renderStatus(); renderTiles(); renderLayers(); drawFeatures(); renderUpdates(); renderSel();
+        var openGroups = [].map.call(document.querySelectorAll('.mp-cg[open] summary span:first-child'), function (x) { return x.textContent; });
+        renderStatus(); renderTiles(); renderLayers(); drawFeatures(); renderUpdates(); renderControls(); renderSel();
+        document.querySelectorAll('.mp-cg').forEach(function (d) { if (openGroups.indexOf(d.querySelector('summary span').textContent) >= 0) d.open = true; });
         if (first && !fitted) fitView();
       });
     }
@@ -320,7 +334,7 @@
         if ((f.kind === 'wall' || f.kind === 'rail' || f.kind === 'passage') && f.points && f.points.length > 1 && !isSel) return; // the line is the feature
         var k = KIND[f.kind] || KIND.place, s = k[2];
         var icon = L.divIcon({ className: 'mk' + (isSel ? ' sel' : ''), iconSize: [44, 44], iconAnchor: [22, 22],
-          html: '<span class="dot" style="width:' + s + 'px;height:' + s + 'px;background:' + col + ';border-radius:' + k[3] + '"></span>' });
+          html: '<span class="dot" style="width:' + s + 'px;height:' + s + 'px;background:' + col + ';border-radius:' + k[3] + (f.kind === 'control' ? ';transform:rotate(45deg)' : '') + '"></span>' });
         var m = L.marker(P(f.x + 0.5, f.z + 0.5), { icon: icon, title: f.name + ' (' + (f.kindLabel || f.kind) + ')', alt: f.name, keyboard: true, riseOnHover: true, zIndexOffset: isSel ? 1000 : 0 });
         m.on('click', pick);
         m.on('keypress', function (e) { if (e.originalEvent.key === 'Enter' || e.originalEvent.key === ' ') pick(); });
@@ -333,7 +347,7 @@
     function select(id, pan) {
       selId = id; drawFeatures(); renderSel(); openCard('sel');
       var f = find(id);
-      if (pan && f && f.x != null && !fly(f.x, f.y, f.z)) map.setView(P(f.x + 0.5, f.z + 0.5), Math.max(map.getZoom(), 0));
+      if (pan && f && f.x != null && !fly(f.x, f.y, f.z, f.kind === 'control' ? 25 : 120)) map.setView(P(f.x + 0.5, f.z + 0.5), Math.max(map.getZoom(), f.kind === 'control' ? 3 : 0));
     }
     function chip(text, col) { return '<span class="mp-chip" style="color:' + col + '">' + esc(text) + '</span>'; }
     function renderSel() {
@@ -346,6 +360,7 @@
         '<h4>' + esc(f.name) + '</h4>' + (f.detail ? '<p class="d">' + esc(f.detail) + '</p>' : '') +
         '<div class="mp-facts"><div class="mp-fact"><div class="k">Where</div><div class="v">' + esc(where) + '</div></div>' +
         '<div class="mp-fact"><div class="k">Updated</div><div class="v t">' + (f.updated_at ? esc(ago(f.updated_at)) : '—') + '</div></div></div><div class="mp-acts">';
+      if (f.kind === 'control') h = h.replace('<div class="mp-acts">', controlFacts(f) + '<div class="mp-acts">');
       if (f.y != null) h += '<button type="button" class="btn-primary" data-act="tp">Teleport here</button>';
       if (f.x != null && f.y != null && !f.saved) h += '<button type="button" class="btn-ghost" data-act="save">Save as place</button>';
       if (f.drill) h += '<a class="btn-area" href="/map/' + B.srv + '/' + encodeURIComponent(B.mv) + '/area/' + encodeURIComponent(f.id) + '">Open floor plans and power</a>';
@@ -363,6 +378,45 @@
       } else {
         postForm('/worlds/' + encodeURIComponent(B.worldId) + '/saveloc', { name: f.name.slice(0, 40), x: f.x, y: f.y, z: f.z }).then(function (j) { done(j); if (!j.err) load(false); });
       }
+    });
+    function statePill(f) {
+      var st = f.state || {};
+      if (st.on == null) return '<span class="mp-pill" title="Its chunk is not loaded and it is not in the last save">?</span>';
+      return '<span class="mp-pill' + (st.on ? ' on' : '') + '" title="' + (st.source === 'live' ? 'Live from the server' : 'From the last save') + '">' + (st.on ? 'ON' : 'OFF') + (st.source === 'save' ? ' · saved' : '') + '</span>';
+    }
+    function controlFacts(f) {
+      var c = f.control || {}, h = '<dl class="mp-ctl">';
+      if (c.reach) h += '<dt>Reach</dt><dd>' + esc(c.reach) + '</dd>';
+      if (c.on) h += '<dt>ON</dt><dd>' + esc(c.on) + '</dd>';
+      if (c.off) h += '<dt>OFF</dt><dd>' + esc(c.off) + '</dd>';
+      if (c.drives) h += '<dt>Drives</dt><dd>' + esc(c.drives) + '</dd>';
+      h += '<dt>Now</dt><dd>' + statePill(f) + (c.verified === false ? ' <span class="mp-chip" style="color:#ffd166">Unverified</span>' : '') + '</dd></dl>';
+      return h;
+    }
+    function renderControls() {
+      var el = $('mp-controls'); if (!el) return;
+      var cs = data.features.filter(function (f) { return f.kind === 'control'; });
+      if (!cs.length) { el.innerHTML = '<p class="muted" style="margin:0">No controls mapped in this world yet.</p>'; return; }
+      var groups = {}, order = [];
+      cs.forEach(function (f) { var g = (f.control && f.control.group) || 'Other'; if (!groups[g]) { groups[g] = []; order.push(g); } groups[g].push(f); });
+      el.innerHTML = order.map(function (g) {
+        return '<details class="mp-cg"><summary><span>' + esc(g) + '</span><span class="mp-hint">' + groups[g].length + '</span></summary>' + groups[g].map(function (f) {
+          var c = f.control || {};
+          return '<div class="mp-ci"><div class="mp-ci-h"><b>' + esc(f.name) + '</b>' + statePill(f) + '</div>' +
+            '<div class="mp-hint">' + f.x + ' ' + f.y + ' ' + f.z + (c.verified === false ? ' · unverified' : '') + '</div>' +
+            (c.reach ? '<div class="mp-ci-t"><b>Reach</b> ' + esc(c.reach) + '</div>' : '') +
+            (c.on ? '<div class="mp-ci-t"><b>ON</b> ' + esc(c.on) + '</div>' : '') +
+            (c.off ? '<div class="mp-ci-t"><b>OFF</b> ' + esc(c.off) + '</div>' : '') +
+            (c.drives ? '<div class="mp-ci-t"><b>Drives</b> ' + esc(c.drives) + '</div>' : '') +
+            '<button type="button" class="mp-show" data-f="' + esc(f.id) + '">Show on map</button></div>';
+        }).join('') + '</details>';
+      }).join('');
+    }
+    $('mp-controls').addEventListener('click', function (e) {
+      var b = e.target.closest('.mp-show'); if (!b) return;
+      var id = b.getAttribute('data-f');
+      if (!show.controls) { show.controls = true; renderLayers(); }
+      select(id, true);
     });
     function renderUpdates() {
       var el = $('mp-updates');

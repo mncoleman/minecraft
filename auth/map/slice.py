@@ -5,7 +5,8 @@ Usage: slice.py <region_dir> <spec.json> <out_dir>
 
 spec.json: {"box": {"from": [x,y,z], "to": [x,y,z]},
             "floors": [13, 30, 78] | "auto",
-            "masks": [{"from": [x,y,z], "to": [x,y,z]}, ...]}   # secret passages
+            "masks": [{"from": [x,y,z], "to": [x,y,z]}, ...],   # secret passages
+            "components_only": true}                           # optional: inventory only
 
 Writes to out_dir:
   floors.json            box, chosen floor levels, counts, generated_at
@@ -87,6 +88,9 @@ def main():
     os.replace(os.path.join(out, 'components.json.tmp'), os.path.join(out, 'components.json'))
 
     W, H = X1 - X0 + 1, Z1 - Z0 + 1
+    if spec.get('components_only'):   # control inventory: no floor plans
+        print(json.dumps({'components': len(comps), 'chunk_errors': len(errors)}))
+        return
     # floors: given, or the levels with the most walkable cells
     floors = spec.get('floors')
     auto = not isinstance(floors, list) or not floors

@@ -17,7 +17,7 @@
 // components are left out of the redstone layer.
 import type { Hono, Context } from "hono";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, existsSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, readdirSync, unlinkSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { db, type User } from "./db.ts";
 import { config } from "./config.ts";
@@ -95,7 +95,10 @@ export const KINDS: Record<string, { label: string; layer: string }> = {
   place: { label: "Place", layer: "places" },
   planned: { label: "Planned", layer: "planned" },
   keepclear: { label: "Keep clear", layer: "keepclear" },
+  control: { label: "Control", layer: "controls" },
 };
+/** How a lever, button or sensor is used: shown in the Controls card. */
+export interface ControlInfo { group?: string; type?: string; reach?: string; on?: string; off?: string; drives?: string; verified?: boolean }
 
 type V3 = [number, number, number];
 export interface Floor { y: number; name: string }
@@ -103,7 +106,7 @@ export interface Feature {
   id: string; server: ServerId; world: string; slug: string; kind: string; name: string; detail: string; status: string;
   x: number | null; y: number | null; z: number | null;
   points: number[][] | null; box: { from: V3; to: V3 } | null; floors: Floor[] | "auto" | null;
-  labels: { rooms?: Array<{ name: string; x: number; z: number; y?: number }>; levers?: Record<string, string> } | null;
+  labels: { rooms?: Array<{ name: string; x: number; z: number; y?: number }>; levers?: Record<string, string>; control?: ControlInfo } | null;
   secret: boolean; underground: boolean; created_by: string | null; created_at: number; updated_at: number;
 }
 function parseJ<T>(s: unknown): T | null { if (typeof s !== "string" || !s) return null; try { return JSON.parse(s) as T; } catch { return null; } }
@@ -157,7 +160,7 @@ function slugify(s: string): string {
 }
 export interface FeatureInput {
   slug?: string; kind?: string; name?: string; detail?: string; status?: string; pos?: unknown; points?: unknown; box?: unknown;
-  floors?: unknown; rooms?: unknown; levers?: unknown; secret?: unknown; underground?: unknown;
+  floors?: unknown; rooms?: unknown; levers?: unknown; secret?: unknown; underground?: unknown; control?: unknown;
 }
 function cleanFields(a: FeatureInput, partial: boolean): Record<string, any> {
   const o: Record<string, any> = {};
@@ -208,8 +211,17 @@ function cleanFields(a: FeatureInput, partial: boolean): Record<string, any> {
         : { y: yv(f?.y, "floor y"), name: String(f?.name ?? `Level ${f?.y}`).trim().slice(0, 40) }).sort((p: Floor, q: Floor) => p.y - q.y));
     }
   }
-  if (a.rooms !== undefined || a.levers !== undefined) {
+  if (a.rooms !== undefined || a.levers !== undefined || a.control !== undefined) {
     o.__labels = {} as any;
+    if (a.control !== undefined) {
+      const c: any = a.control;
+      if (c !== null && (typeof c !== "object" || Array.isArray(c))) throw new Error("control must be an object {group, type, reach, on, off, drives, verified}.");
+      const t = (k: string, n = 240) => (c?.[k] === undefined || c?.[k] === null ? undefined : String(c[k]).trim().slice(0, n));
+      o.__labels.control = c === null ? undefined : {
+        group: t("group", 60), type: t("type", 20), reach: t("reach"), on: t("on"), off: t("off"), drives: t("drives"),
+        verified: c?.verified === undefined ? undefined : truthy(c.verified),
+      };
+    }
     if (a.rooms !== undefined) {
       if (a.rooms !== null && (!Array.isArray(a.rooms) || a.rooms.length > 80)) throw new Error("rooms must be up to 80 entries of {name, x, z, y?}.");
       o.__labels.rooms = a.rooms === null ? undefined : (a.rooms as any[]).map((r) => ({ name: String(r?.name ?? "").trim().slice(0, 40), x: int(r?.x, "room x"), z: int(r?.z, "room z"), ...(r?.y !== undefined && r?.y !== null ? { y: yv(r.y, "room y") } : {}) }));
@@ -411,6 +423,7 @@ async function renderWorld(srv: ServerId, mv: string, force: boolean): Promise<a
   if (t.code !== 0) throw new Error("tiles.py: " + (t.err.trim().split("\n").pop() || `exit ${t.code}`));
   const sum: any = JSON.parse(t.out.trim().split("\n").pop() || "{}");
   sum.areas = await sliceAreas(srv, mv, rd, force);
+  sum.controls = await sliceControls(srv, mv, rd, force);
   console.log(`map render ${srv}/${mv}:`, JSON.stringify(sum));
   return sum;
 }
@@ -465,6 +478,40 @@ async function sliceAreas(srv: ServerId, mv: string, rd: string, force: boolean)
     n++;
   }
   return n;
+}
+/** Last-saved state of every control (lever/button) from disk, for when its chunk isn't loaded. */
+async function sliceControls(srv: ServerId, mv: string, rd: string, force: boolean): Promise<number> {
+  const cs = listFeatures(srv, mv, true).filter((f) => f.kind === "control" && f.x !== null && f.y !== null && f.z !== null);
+  if (!cs.length) return 0;
+  const dir = `${outDir(srv, mv)}/controls`;
+  mkdirSync(dir, { recursive: true });
+  const box = { from: [Math.min(...cs.map((f) => f.x!)) - 1, Math.min(...cs.map((f) => f.y!)) - 1, Math.min(...cs.map((f) => f.z!)) - 1], to: [Math.max(...cs.map((f) => f.x!)) + 1, Math.max(...cs.map((f) => f.y!)) + 1, Math.max(...cs.map((f) => f.z!)) + 1] };
+  const specStr = JSON.stringify({ box, components_only: true });
+  const prev = existsSync(`${dir}/spec.json`) ? readFileSync(`${dir}/spec.json`, "utf8") : "";
+  let gen = 0;
+  try { gen = Math.floor(statSync(`${dir}/components.json`).mtimeMs / 1000); } catch { /* none yet */ }
+  const man = manifest(srv, mv);
+  const changed = !gen || prev !== specStr || force || Object.values(man?.regions || {}).some((r) => r.mtime > gen);
+  if (!changed) return 0;
+  writeFileSync(`${dir}/spec.json`, specStr);
+  const r = await runPy([PY_DIR + "slice.py", rd, `${dir}/spec.json`, dir], 5 * 60 * 1000);
+  if (r.code !== 0) { console.error("controls slice failed:", r.err.trim().split("\n").pop()); writeFileSync(`${dir}/spec.json`, ""); return 0; }
+  return cs.length;
+}
+/** On/off of each control: live from the server where its chunk is loaded, else the last save. */
+async function controlStates(srv: ServerId, mv: string, cs: Feature[]): Promise<Record<string, { on: boolean | null; source: "live" | "save" | null; block: string | null }>> {
+  const out: Record<string, { on: boolean | null; source: "live" | "save" | null; block: string | null }> = {};
+  const disk = new Map((readJson<Array<[number, number, number, string]>>(`${outDir(srv, mv)}/controls/components.json`) || []).map((d) => [`${d[0]},${d[1]},${d[2]}`, d[3]]));
+  let live: Array<string | null> = [];
+  if (SERVERS[srv].modern && cs.length) {
+    try { live = (await plugin("/states", { world: mv, positions: cs.map((f) => [f.x, f.y, f.z]) }, 5000, srv)).states || []; } catch { /* server down */ }
+  }
+  cs.forEach((f, i) => {
+    const st = live[i] ?? disk.get(`${f.x},${f.y},${f.z}`) ?? null;
+    const c = classify(st);
+    out[f.id] = { on: c ? !!c[1] : null, source: live[i] ? "live" : st ? "save" : null, block: c ? c[2] : null };
+  });
+  return out;
 }
 let ticker: ReturnType<typeof setInterval> | null = null;
 export function startMapRenderer(): void {
@@ -564,6 +611,7 @@ export const MAP_TOOL = {
     "kinds: wall (points), tower, gate, building, area, passage (set secret:true for hidden ones; owner/admin only see those), rail (points), place, planned (work not built yet), keepclear (box: nothing may be built there).",
     "Geometry: pos [x,y,z] for a marker (y = where a player stands there: the map's Teleport button goes to exactly this spot); points [[x,z],...] or [[x,y,z],...] for walls, passages and rail lines; box {from:[x,y,z], to:[x,y,z]} for an area/building/keep-clear zone.",
     "Drill-down floor plans: give a box (include every floor, basement to roof) and floors [{y, name}] (y = the floor block's y, standing level is y+1) or floors:'auto'. The map then cuts a plan at each floor and shows every lever, wire, lamp, piston, door, trap and rail in it, live. rooms [{name,x,z,y}] label rooms; levers [{pos:[x,y,z], name}] name the switchboard.",
+    "Controls: every lever, button and trigger players can use gets kind 'control' with pos (the lever block itself) and control {group, type, reach, on, off, drives, verified}. The map reads its live state and lists it in the Controls card.",
     "Also: detail (one or two plain sentences for players), status ('Built', 'Building now', 'Planned', 'Protected'), underground:true for things below ground, note (what changed, shown in the Recent map updates feed).",
   ].join("\n"),
   inputSchema: {
@@ -582,6 +630,7 @@ export const MAP_TOOL = {
       rooms: { type: "array", items: { type: "object" } },
       levers: { type: "array", items: { type: "object" } },
       secret: { type: "boolean" }, underground: { type: "boolean" },
+      control: { type: "object", description: "kind 'control' only: {group (place, e.g. 'North Gate'), type ('lever'|'button'|'sensor'), reach (how to get to it), on (what ON does), off (what OFF does), drives (what it powers), verified (true once checked in the world)}" },
       filter_kind: { type: "string", description: "list: only this kind" },
     },
     required: ["action", "world"],
@@ -594,7 +643,7 @@ function featureOut(f: Feature, masks: Array<{ from: V3; to: V3 }> = []) {
   return {
     id: f.slug, kind: f.kind, name: f.name, detail: f.detail || undefined, status: f.status || undefined,
     pos: f.x !== null ? [f.x, f.y, f.z] : undefined, points: f.points || undefined, box: f.box || undefined,
-    floors: f.floors || undefined, rooms, levers,
+    floors: f.floors || undefined, rooms, levers, control: f.labels?.control,
     secret: f.secret || undefined, underground: f.underground || undefined, updated_at: new Date(f.updated_at * 1000).toISOString(),
   };
 }
@@ -662,7 +711,7 @@ function featureJson(f: Feature) {
   return {
     id: f.id, slug: f.slug, kind: f.kind, kindLabel: KINDS[f.kind]?.label ?? f.kind, name: f.name, detail: f.detail, status: f.status,
     x: f.x, y: f.y, z: f.z, points: f.points, box: f.box, secret: f.secret, underground: f.underground,
-    drill: !!(f.box && f.floors), updated_at: f.updated_at,
+    drill: !!(f.box && f.floors), updated_at: f.updated_at, control: f.kind === "control" ? (f.labels?.control || {}) : undefined,
   };
 }
 function jsonErr(c: Context, status: number, error: string) { return c.json({ error }, status as any, NO_STORE); }
@@ -728,10 +777,28 @@ export function mountMap(app: Hono): void {
     <button type="button" class="mpf-btn" id="mp-view" hidden aria-pressed="false">Top-down</button>
     <button type="button" class="mpf-btn" id="mp-render">Render now</button>
     <button type="button" class="mpf-btn" id="mpf-cards" aria-pressed="false">Hide cards</button>
+    <button type="button" class="mpf-btn mpf-q" id="mp-help-btn" aria-label="How to use the map" title="How to use the map">?</button>
   </div>
   <div class="mpf-col mpf-left">
+    ${mapCard("help", "How to use", `<div class="mp-help">
+<p><b>Move</b> Drag to pan (one finger on a phone). Scroll or pinch to zoom. <span class="k">+</span> <span class="k">−</span> zoom and <span class="k">⤢</span> fits everything.</p>
+<p><b>3D and top-down</b> The <span class="k">3D</span> / <span class="k">Top-down</span> button switches view. In 3D, drag to move, right-drag or two fingers to turn and tilt. Its bar at the bottom left: <span class="k">☰</span> menu (marker sets on and off, settings, flat or free-flight views), view buttons, and your position.</p>
+<p><b>Find things</b> <i>Go to</i> takes a place, a feature name or coordinates like <code>140 260</code>. Click any marker to show it in <i>Selected</i>: <i>Teleport here</i> (you must be in the game on that server), <i>Save as place</i>, and for areas <i>Open floor plans and power</i>.</p>
+<p><b>Layers</b> In top-down, the <i>Layers</i> card turns each kind on and off. In 3D, use the ☰ menu.</p>
+<p><b>Controls</b> The <i>Controls</i> card lists every lever and button by place: how to reach it, what ON and OFF do, what it drives, and whether it is on right now. <i>Show on map</i> jumps to it.</p>
+<p><b>Floor plans and power</b> Floor tabs pick the level. Pick a lever to light up the wire, lamps, pistons and doors it drives. <i>Flip in the game</i> switches the real lever (world owner and admins only), then the map reads the new state back.</p>
+<div class="mp-legend">
+<span><i class="lg sq" style="background:#46d17f"></i>Gate · wall (line)</span><span><i class="lg sq" style="background:#e6e9ee"></i>Tower</span>
+<span><i class="lg" style="background:#ffb454"></i>Building · area (box)</span><span><i class="lg" style="background:#c08cff"></i>Underground · rail (dashed)</span>
+<span><i class="lg" style="background:#5aa9ff"></i>Place</span><span><i class="lg sq" style="background:#ffd166"></i>Planned (dashed)</span>
+<span><i class="lg" style="background:#ff6b6b"></i>Keep clear (dashed box)</span><span><i class="lg dm" style="background:#e3b34a"></i>Control (lever, button)</span>
+<span><i class="lg" style="background:#ff8ad8"></i>Secret passage</span>
+</div>
+</div>
+`)}
     ${mapCard("sel", "Selected", `<div id="mp-sel"><p class="muted" style="margin:0">Click a tower, gate, building or place on the map.</p></div>`)}
     ${mapCard("goto", "Go to", `<form id="mp-goto" class="mp-goto" autocomplete="off"><label class="sr" for="mp-goto-q">Place, feature or coordinates</label><input id="mp-goto-q" list="mp-goto-list" placeholder="North Gate, or x z" enterkeyhint="go"/><datalist id="mp-goto-list"></datalist><button type="submit" class="btn-primary">Go</button></form><p class="hint" style="margin:.45rem 0 0;font-size:.78rem">A saved place, a feature, or coordinates like <code>140 260</code>.</p>`)}
+    ${mapCard("controls", "Controls", `<p class="hint" style="margin:0 0 .5rem;font-size:.8rem">No switch to look for: the night lamps on every wall and tower crown come on at dusk (daylight sensors), and the gate and postern motion lights react to movement.</p><div id="mp-controls"><p class="muted" style="margin:0">Loading…</p></div>`)}
   </div>
   <div class="mpf-col mpf-right">
     ${mapCard("layers", "Layers", `<div class="mp-layers" id="mp-layers"></div>`)}
@@ -761,9 +828,25 @@ export function mountMap(app: Hono): void {
     <a class="mpf-btn" href="/map/${srv}/${esc(mv)}">Back to the map</a>
     <div class="mp-status" id="mp-status">Loading…</div>
     <button type="button" class="mpf-btn" id="mpf-cards" aria-pressed="false">Hide cards</button>
+    <button type="button" class="mpf-btn mpf-q" id="mp-help-btn" aria-label="How to use the floor plans" title="How to use the floor plans">?</button>
   </div>
   <div class="mpf-floors" role="tablist" aria-label="Floor" id="mp-floors"></div>
   <div class="mpf-col mpf-right">
+    ${mapCard("help", "How to use", `<div class="mp-help">
+<p><b>Move</b> Drag to pan, scroll or pinch to zoom, <span class="k">⤢</span> fits the whole area.</p>
+<p><b>Floors</b> The tabs along the top pick the level. The plan is cut at head height: darker blocks are walls, bright ones are floor.</p>
+<p><b>Layers</b> <i>On this floor</i> turns power lines, lights, levers and buttons, doors and pistons, traps and triggers, rails, room names and the block grid on and off.</p>
+<p><b>Trace power</b> Click a lever on the plan, or a row in the <i>Switchboard</i>. What it drives lights up and everything else fades. Counts show wire, lamps, pistons and doors.</p>
+<p><b>Flip</b> <i>Flip in the game</i> switches the real lever (world owner and admins only) and reads the new state back a moment later.</p>
+<div class="mp-legend">
+<span><i class="lg" style="background:#ff6a28"></i>Wire (brighter = stronger)</span><span><i class="lg sq" style="background:#ffe28a"></i>Lamp lit</span>
+<span><i class="lg sq" style="background:#4a3a20"></i>Lamp off</span><span><i class="lg sq" style="background:#ff8a3d"></i>Repeater on</span>
+<span><i class="lg sq" style="background:#9be37d"></i>Piston out</span><span><i class="lg sq" style="background:#ffffff"></i>Door open</span>
+<span><i class="lg" style="background:#ff5c93"></i>Plate · trigger</span><span><i class="lg" style="background:#2fb5c9"></i>Sculk sensor</span>
+<span><i class="lg sq" style="background:#46d17f"></i>Lever on</span><span><i class="lg" style="background:#ffd76a"></i>Powered rail</span>
+</div>
+</div>
+`)}
     ${mapCard("lever", "Lever", `<div id="mp-lever"><p class="muted" style="margin:0">Loading…</p></div>`)}
     ${mapCard("switch", "Switchboard", `<div class="mp-switch" id="mp-switch"></div>`)}
     ${mapCard("floor", "On this floor", `<div class="mp-layers" id="mp-layers"></div><p class="hint" style="margin:.6rem 0 0;font-size:.78rem">Plan cut at head height. Darker blocks are walls. One square is one block.</p>`)}
@@ -794,7 +877,11 @@ export function mountMap(app: Hono): void {
         status: running === `${srv}/${mv}` ? "rendering" : ms.status, rendered_at: man?.rendered_at ?? ms.rendered_at, requested_at: ms.requested_at,
         bounds: man?.bounds ?? null, min_zoom: man?.min_zoom ?? -2, pending: man?.pending ?? 0, tiles: man?.tiles ?? {},
       } : null,
-      features: listFeatures(srv, mv, priv).map(featureJson),
+      features: await (async () => {
+        const fs = listFeatures(srv, mv, priv);
+        const st = await controlStates(srv, mv, fs.filter((f) => f.kind === "control" && f.x !== null && f.y !== null && f.z !== null));
+        return fs.map((f) => ({ ...featureJson(f), state: st[f.id] }));
+      })(),
       places: listSavedLocations(v.sub, srv, mv).map((p) => ({ id: p.id, name: p.name, x: p.x, y: p.y, z: p.z })),
       updates: updates.map((u) => ({ ...u, feature: u.feature_id })),
     }, 200, NO_STORE);

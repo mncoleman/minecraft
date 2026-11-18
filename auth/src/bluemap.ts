@@ -90,20 +90,23 @@ async function reloadBlueMap(): Promise<void> {
 // ── markers ──────────────────────────────────────────────────────────────────
 const COLORS: Record<string, string> = {
   wall: "#46d17f", tower: "#e6e9ee", gate: "#46d17f", building: "#ffb454", area: "#ffb454",
-  passage: "#c08cff", rail: "#c08cff", place: "#5aa9ff", planned: "#ffd166", keepclear: "#ff6b6b",
+  passage: "#c08cff", rail: "#c08cff", place: "#5aa9ff", planned: "#ffd166", keepclear: "#ff6b6b", control: "#e3b34a",
 };
 const SETS: Array<[string, string, (f: Feature) => boolean]> = [
   ["walls", "Walls, towers, gates", (f) => ["wall", "tower", "gate"].includes(f.kind) && !f.underground],
   ["buildings", "Buildings and areas", (f) => ["building", "area"].includes(f.kind) && !f.underground],
-  ["underground", "Underground and rails", (f) => f.underground || f.kind === "passage" || f.kind === "rail"],
+  ["underground", "Underground and rails", (f) => f.kind !== "control" && (f.underground || f.kind === "passage" || f.kind === "rail")],
   ["places", "Places", (f) => f.kind === "place" && !f.underground],
   ["planned", "Planned", (f) => f.kind === "planned"],
   ["keepclear", "Keep clear", (f) => f.kind === "keepclear"],
+  ["controls", "Controls (levers and buttons)", (f) => f.kind === "control"],
 ];
 function esc(s: string): string { return (s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!)); }
 function detailHtml(f: Feature, mv: string): string {
+  const ci = f.kind === "control" ? f.labels?.control : null;
+  const ctl = ci ? `${ci.reach ? `<div style="margin-top:4px"><b>Reach:</b> ${esc(ci.reach)}</div>` : ""}${ci.on ? `<div><b>ON:</b> ${esc(ci.on)}</div>` : ""}${ci.off ? `<div><b>OFF:</b> ${esc(ci.off)}</div>` : ""}${ci.drives ? `<div><b>Drives:</b> ${esc(ci.drives)}</div>` : ""}${ci.verified === false ? `<div style="opacity:.7">Unverified</div>` : ""}` : "";
   const drill = f.box && f.floors ? `<div style="margin-top:6px"><a href="/map/26/${mv}/area/${encodeURIComponent(f.slug)}" target="_top">Open floor plans and power</a></div>` : "";
-  return `<div style="max-width:260px" data-mp-f="${esc(f.slug)}"><div style="font-weight:700">${esc(f.name)}</div><div style="opacity:.75;font-size:.85em">${esc(KINDS[f.kind]?.label || f.kind)}${f.status ? " · " + esc(f.status) : ""}</div>${f.detail ? `<div style="margin-top:4px">${esc(f.detail)}</div>` : ""}${drill}</div>`;
+  return `<div style="max-width:260px" data-mp-f="${esc(f.slug)}"><div style="font-weight:700">${esc(f.name)}</div><div style="opacity:.75;font-size:.85em">${esc(KINDS[f.kind]?.label || f.kind)}${f.status ? " · " + esc(f.status) : ""}</div>${f.detail ? `<div style="margin-top:4px">${esc(f.detail)}</div>` : ""}${ctl}${drill}</div>`;
 }
 function markersFor(mv: string) {
   const fs = listFeatures(SRV, mv, !SECRETS_PRIVATE); // secret ones only when secrets are public
@@ -124,7 +127,7 @@ function markersFor(mv: string) {
       const lineOnly = (f.kind === "wall" || f.kind === "rail" || f.kind === "passage") && f.points && f.points.length > 1;
       if (f.x !== null && f.z !== null && !lineOnly) {
         out.push({ id: f.slug, type: "poi", label: esc(f.name), detail: detailHtml(f, mv), pos: [f.x + 0.5, (f.y ?? yDef) + 1, f.z + 0.5],
-          icon: `/map/assets/poi/${f.kind}.svg`, maxDistance: f.kind === "tower" || f.kind === "place" ? 1500 : 100000 });
+          icon: `/map/assets/poi/${f.kind}.svg`, maxDistance: f.kind === "control" ? 400 : f.kind === "tower" || f.kind === "place" ? 1500 : 100000 });
       }
       return out;
     }),
@@ -213,7 +216,7 @@ export function mountBlueMap(app: Hono): void {
     const k = /^([a-z]{1,16})\.svg$/.exec(c.req.param("file"))?.[1];
     const col = k ? COLORS[k] : null;
     if (!col) return c.text("not found", 404);
-    const shape = k === "tower" || k === "gate" || k === "planned" ? `<rect x="3" y="3" width="18" height="18" rx="4"` : `<circle cx="12" cy="12" r="9"`;
+    const shape = k === "control" ? `<path d="M12 2 22 12 12 22 2 12z"` : k === "tower" || k === "gate" || k === "planned" ? `<rect x="3" y="3" width="18" height="18" rx="4"` : `<circle cx="12" cy="12" r="9"`;
     return new Response(`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">${shape} fill="${col}" stroke="#0a0c10" stroke-width="3"/></svg>`,
       { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "private, max-age=86400" } });
   });
