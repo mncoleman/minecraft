@@ -51,6 +51,10 @@ services:
       ENABLE_RCON: "true"
       MEMORY: "3G"
       USE_AIKAR_FLAGS: "true"
+      # Browser clients in a background tab get throttled to one wake-up a
+      # minute (Chrome, after 5 min hidden), so they answer keep-alives late
+      # and the default 30 s limit kicked them ("Timed out"). Allow 3 minutes.
+      JVM_DD_OPTS: "paper.playerconnection.keepalive=180"
       MAX_PLAYERS: "20"
       MODE: "creative"
       OPS: "3c22628f-78fc-3153-b588-6c5707ba00e8"  # owner's offline-mode UUID; see server/docker-compose.yml
