@@ -95,6 +95,41 @@ open(page, "wb").write(d)
 print("split: index.html is now", len(d), "bytes")
 EOF
 
+# The client hard-codes a public server, "ArchMC" (wss://arch.mc), at the top of
+# the Multiplayer list; the `servers` option does not remove it. Matthew asked
+# for it gone (2026-11-18): rename it "Home26" in the engine's string pool (same
+# length, so nothing shifts) and send its connections (ping + join) to our server
+# with a WebSocket wrapper the engine picks up (it calls `new WebSocket(url)`).
+python3 -I - "$OUT" "$WS" <<'EOF'
+import sys, os
+out, ws = sys.argv[1], sys.argv[2]
+w = os.path.join(out, "classes.wasm")
+d = open(w, "rb").read()
+old, new = b"\x06ArchMC", b"\x06Home26"
+if d.count(old) != 1 or d.count(b"\x0dwss://arch.mc") != 1:
+    sys.exit("ArchMC default server not found exactly once; the client changed, update this script")
+open(w, "wb").write(d.replace(old, new))
+page = os.path.join(out, "index.html")
+p = open(page, "rb").read()
+anchor = b'window.eaglercraftXOpts = {'
+if p.count(anchor) != 1: sys.exit("opts anchor not found exactly once")
+shim = ('(function () {\n'
+        '\t\t\tvar Native = window.WebSocket;\n'
+        '\t\t\tif (typeof Native !== "function") return;\n'
+        '\t\t\tvar Home = function (url, protocols) {\n'
+        '\t\t\t\tif (/^wss?:\\/\\/arch\\.mc\\/?$/i.test(String(url))) url = "%s";\n'
+        '\t\t\t\treturn protocols === undefined ? new Native(url) : new Native(url, protocols);\n'
+        '\t\t\t};\n'
+        '\t\t\tHome.prototype = Native.prototype;\n'
+        '\t\t\t["CONNECTING", "OPEN", "CLOSING", "CLOSED"].forEach(function (k) { Home[k] = Native[k]; });\n'
+        '\t\t\twindow.WebSocket = Home;\n'
+        '\t\t})();\n\t\t' % ws).encode()
+open(page, "wb").write(p.replace(anchor, shim + anchor))
+print("ArchMC -> Home26 ->", ws)
+EOF
+brotli -q 11 -f -o "$OUT/classes.wasm.br" "$OUT/classes.wasm"
+touch "$OUT/classes.wasm.br"
+
 if command -v brotli >/dev/null; then
   brotli -q 9 -f -o "$OUT/index.html.br" "$OUT/index.html"
   touch "$OUT/index.html.br"  # brotli copies the source mtime; mc-auth needs it newer
