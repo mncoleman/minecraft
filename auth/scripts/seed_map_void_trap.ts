@@ -1,6 +1,7 @@
 // One-off (2026-11-18): the Throne Room void trap. Lever, repeaters, torches,
-// pistons and the open shaft checked against the save. The old Throne Room
-// piston lever at 120 80 283 is no longer in the world, so it leaves the map.
+// pistons and the open shaft checked against the save. (It also removed the
+// Throne Room piston lever at 120 80 283 by mistake; scripts/restore_throne_piston.ts
+// puts it back. The lever is still in the world.)
 //
 //   docker exec mc-auth bun run scripts/seed_map_void_trap.ts
 import { addFeature, getFeature, removeFeature, updateFeature, type FeatureInput } from "../src/map.ts";
