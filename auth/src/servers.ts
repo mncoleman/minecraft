@@ -64,12 +64,21 @@ export const SERVERS: Record<ServerId, GameServer> = {
   },
 };
 
-export const DEFAULT_SERVER: ServerId = "18";
+/** 1.8 can be retired without deleting it: SERVER18_ENABLED=false hides it
+ *  everywhere (Play button, worlds, hop, presence, Claude) while its data and
+ *  panel rows stay put for a rollback. See deploy/DEPLOY.md "Retiring 1.8". */
+const on18 = env("SERVER18_ENABLED", "true").toLowerCase() !== "false";
 
-/** Servers that are configured. 1.8 is always on; 26 needs its RCON password. */
+/** Servers that are configured: 1.8 unless retired, 26 when its RCON password is set. */
 export function enabledServers(): ServerId[] {
-  return SERVERS["26"].rconPassword ? ["18", "26"] : ["18"];
+  const out: ServerId[] = [];
+  if (on18) out.push("18");
+  if (SERVERS["26"].rconPassword) out.push("26");
+  return out.length ? out : ["18"];
 }
+
+/** Fallback server for callers that don't name one: the first one running. */
+export const DEFAULT_SERVER: ServerId = enabledServers()[0];
 export function isEnabled(id: ServerId): boolean {
   return enabledServers().includes(id);
 }

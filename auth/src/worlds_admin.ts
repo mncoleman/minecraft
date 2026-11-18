@@ -217,12 +217,12 @@ function worldsPage(me: { sub: string; username: string; admin: boolean; owner: 
             : ""}<button class="btn-primary">Create</button></form>
            <div class="progress-wrap" id="create-progress"><div class="progress-track"><div class="progress-fill" id="create-fill"></div></div><div class="progress-label" id="create-label"></div></div>
            <p class="hint" style="margin:.5rem 0 0">Leave the seed blank for a random world, or paste a seed (a number, or any word) to generate a specific one.${me.admin ? "" : ` You can create up to ${PER_USER_WORLD_CAP} worlds.`}</p>`}
-      <div style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--line)">
+      ${isEnabled("18") ? `<div style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--line)">
         <div class="hint" style="margin-bottom:.4rem">${icon("upload")} Upload a world you built in singleplayer ${edBadge("18")}</div>
         <form id="upload-form" method="post" action="/worlds/upload" enctype="multipart/form-data" class="row"><input type="file" name="world" accept=".zip" required/><input name="name" placeholder="world name"/><button class="btn-ghost">Upload .zip</button></form>
         <div class="progress-wrap" id="upload-progress"><div class="progress-track"><div class="progress-fill" id="upload-fill"></div></div><div class="progress-label" id="upload-label"></div></div>
         <p class="hint" style="margin:.5rem 0 0">In singleplayer: open the world's Backup/Edit menu, choose <b>Convert to Vanilla</b>, then upload the .zip here. Give it a new name. Uploads go to the 1.8 server.</p>
-      </div>
+      </div>` : ""}
       ${me.admin ? `
       <div style="margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--line)">
         <div class="hint" style="margin-bottom:.4rem">${icon("shield")} Admin tools</div>
@@ -1083,6 +1083,7 @@ export function mountWorlds(app: Hono): void {
     const m = await me(c);
     if (!m) { await drain(); return c.redirect("/login"); }
     // Any logged-in player may upload (private friends-only server).
+    if (!isEnabled("18")) return bail("err=" + encodeURIComponent("World uploads go to the 1.8 server, which is retired."));
     const GAMEDATA = SERVERS["18"].gamedataDir;
     const MAX_UPLOAD = 400 * 1024 * 1024;
     // Raw-body upload, not multipart/form-data: Bun's FormData/multipart parser

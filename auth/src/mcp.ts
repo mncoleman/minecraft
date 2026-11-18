@@ -13,7 +13,7 @@ import { currentSession, rateLimited, clientIp } from "./session.ts";
 import { setCookie } from "hono/cookie";
 import { signSession } from "./jwt.ts";
 import { getPresence, serverOfPlayer } from "./presence.ts";
-import { SERVERS, enabledServers, isEnabled, parseServer, serverLabel, type ServerId } from "./servers.ts";
+import { SERVERS, DEFAULT_SERVER, enabledServers, isEnabled, parseServer, serverLabel, type ServerId } from "./servers.ts";
 import { listFriends, incomingRequests, outgoingRequests, visibleOnlineUsernames } from "./friends.ts";
 import { shell, icon, pageHead, tiles } from "./layout.ts";
 import { rcon, stripColor } from "./rcon.ts";
@@ -144,7 +144,7 @@ async function resolveServer(u: User, a: any, mv?: string): Promise<ServerId> {
   }
   const me = await serverOfPlayer(u.username);
   if (me && on.includes(me.server)) return me.server;
-  return "18";
+  return DEFAULT_SERVER;
 }
 
 // Job ids are per plugin, so 1.8 and 26 can both issue "b12". Ids from the 26
@@ -819,7 +819,7 @@ export function mountMcp(app: Hono): void {
     let closed = false;
     const userId = caller.user.id;
     // ?server=26 follows the 26 server's chat; default 1.8.
-    const srv: ServerId = parseServer(c.req.query("server")) ?? "18";
+    const srv: ServerId = parseServer(c.req.query("server")) ?? DEFAULT_SERVER;
     if (!isEnabled(srv)) { liveFeeds--; return c.text("That server isn't set up.\n", 404); }
     const stream = new ReadableStream({
       async start(ctrl) {

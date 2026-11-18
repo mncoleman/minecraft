@@ -249,3 +249,22 @@ Command dialect differences the panel handles for 26: Multiverse 5
   `live/players*` always refused). One render thread at priority 1: watch
   `rcon-cli tps` during a full render. `rcon-cli bluemap` shows progress.
 
+
+## Retiring 1.8 (done 2026-11-18) and rolling it back
+
+1.8 is **stopped, not deleted**. That freed about 3.8 GB of RAM.
+
+**What was done**
+1. `save-all flush` on 1.8, which had 0 players online. Then `cd server && docker compose stop`. The `mc-eagler` container stays in place, Exited.
+   - Use `stop`, not `down`. This compose project owns the shared `server_default` network that mc-auth and mc-eagler26 join.
+2. Backups, both root-only:
+   - `/home/ubuntu/backups/mc18-server-20261118014534.tar.gz` holds the whole `server/` folder: data, worlds, plugins, `.env`. The sha256 is in the `.sha256` file next to it.
+   - The panel DB is at `mc_auth_data:/backup-pre-retire18-20261118.sqlite`.
+3. The panel hides 1.8 everywhere because `auth/.env` has `SERVER18_ENABLED=false`, read in `auth/src/servers.ts`. Its worlds, places and notes stay in the DB.
+
+**Roll back**
+1. Start the server: `cd /home/ubuntu/minecraft/server && docker compose start`, then wait for "Done".
+   - If the container was ever removed, use `docker compose up -d` instead.
+   - If `server/data` is gone, first restore it: `sudo tar xzf /home/ubuntu/backups/mc18-server-20261118014534.tar.gz -C /home/ubuntu/minecraft`.
+2. Re-enable it in the panel: set `SERVER18_ENABLED=true` in `auth/.env` (or delete the line), then redeploy mc-auth (§6).
+3. Check that the home page shows Play 1.8 again and that a 1.8 join works.
