@@ -11,6 +11,9 @@ commands:
     aliases: [claude]
     usage: "/claude avatar <on|off|test> | status | cancel"
     permission: claudebuild.admin
+  hud:
+    description: "Show or hide the coordinates and time HUD at the top of the screen"
+    usage: "/hud"
 permissions:
   claudebuild.admin:
     default: op

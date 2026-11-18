@@ -65,9 +65,10 @@ services:
       ENFORCE_WHITELIST: "FALSE"
       SPAWN_PROTECTION: "0"
       # Browser clients: every chunk is sent over the WebSocket and meshed in
-      # WASM. 6 sends ~44% fewer chunks than 8 (13x13 vs 17x17); simulation 4
-      # keeps ticking cheap. Raise VIEW_DISTANCE if players want a longer view.
-      VIEW_DISTANCE: "6"
+      # WASM, so view distance costs the browser. It was 6 (13x13 chunks) but
+      # looked shorter than 1.8's 8; Matthew chose 10 (21x21) on 2026-11-17.
+      # Simulation 4 keeps ticking cheap.
+      VIEW_DISTANCE: "10"
       SIMULATION_DISTANCE: "4"
       SYNC_CHUNK_WRITES: "false"
       TZ: "UTC"
