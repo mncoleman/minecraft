@@ -50,7 +50,7 @@ public final class ClaudeBuildPlugin extends JavaPlugin {
         }
         hud = new Hud(this);
         getServer().getPluginManager().registerEvents(hud, this);
-        getServer().getScheduler().runTaskTimer(this, hud::tick, 20L, 10L);
+        getServer().getScheduler().runTaskTimer(this, hud::tick, 20L, 1L);
         try {
             api = new ApiServer(this, getConfig().getInt("api-port", 25581), getConfig().getString("api-token"));
         } catch (Exception e) {
@@ -96,7 +96,8 @@ public final class ClaudeBuildPlugin extends JavaPlugin {
 
     /**
      * Coordinates-and-time HUD: one boss bar per player across the top of the
-     * screen ("x 133  y 83  z 114 · NE · 07:42 Day"), refreshed twice a second.
+     * screen ("x 133  y 83  z 114 · NE · 07:42 Day"), refreshed every tick; a
+     * packet only goes out when the text, colour or (coarse) progress changes.
      * The 1.8 Eaglercraft client had this built in; the 26 client does not.
      * On by default; /hud toggles it, remembered on the player.
      */
@@ -126,10 +127,13 @@ public final class ClaudeBuildPlugin extends JavaPlugin {
             long t = Math.floorMod(p.getWorld().getTime(), 24000L);
             int hour = (int) ((t / 1000 + 6) % 24), min = (int) (t % 1000 * 60 / 1000);
             String phase = t < 12000 ? "Day" : t < 13000 ? "Dusk" : t < 23000 ? "Night" : "Dawn";
-            bar.setTitle(String.format("x %d  y %d  z %d  \u00b7  %s  \u00b7  %02d:%02d %s",
-                l.getBlockX(), l.getBlockY(), l.getBlockZ(), facing(l.getYaw()), hour, min, phase));
-            bar.setColor(phase.equals("Night") ? BarColor.BLUE : phase.equals("Day") ? BarColor.YELLOW : BarColor.PINK);
-            bar.setProgress(t / 24000.0);
+            String title = String.format("x %d  y %d  z %d  \u00b7  %s  \u00b7  %02d:%02d %s",
+                l.getBlockX(), l.getBlockY(), l.getBlockZ(), facing(l.getYaw()), hour, min, phase);
+            if (!title.equals(bar.getTitle())) bar.setTitle(title);
+            BarColor color = phase.equals("Night") ? BarColor.BLUE : phase.equals("Day") ? BarColor.YELLOW : BarColor.PINK;
+            if (bar.getColor() != color) bar.setColor(color);
+            double progress = Math.floor(t / 240.0) / 100.0;   // 1% steps, so it isn't resent every tick
+            if (Math.abs(bar.getProgress() - progress) > 1e-9) bar.setProgress(progress);
         }
 
         private static String facing(float yaw) {
