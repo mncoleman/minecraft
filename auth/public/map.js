@@ -183,7 +183,7 @@
           try {
             var d = frame.contentDocument, st = d.createElement('style'), lastPop = null;
             // BlueMap's own control bar moves to the bottom, clear of the floating cards.
-            st.textContent = '#app .control-bar{top:auto!important;bottom:8px!important;left:8px!important;right:56px!important}';
+            st.textContent = '#app .control-bar{top:auto!important;bottom:8px!important;left:8px!important;right:56px!important}.bm-marker-poi-label{width:max-content;max-width:280px;white-space:normal}';
             d.head.appendChild(st);
             // Marker details carry data-mp-f=<feature id>: a click on a marker (POI) or a
             // line/area popup shows that feature in the Selected card.
