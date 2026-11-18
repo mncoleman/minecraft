@@ -185,13 +185,21 @@
             // BlueMap's own control bar moves to the bottom, clear of the floating cards.
             st.textContent = '#app .control-bar{top:auto!important;bottom:8px!important;left:8px!important;right:56px!important}';
             d.head.appendChild(st);
-            // A BlueMap marker popup carries data-mp-f=<feature id>: show that feature in Selected.
-            new MutationObserver(function () {
-              var el = d.querySelector('[data-mp-f]'), slug = el ? el.getAttribute('data-mp-f') : null;
-              if (slug === lastPop) return;
-              lastPop = slug;
+            // Marker details carry data-mp-f=<feature id>: a click on a marker (POI) or a
+            // line/area popup shows that feature in the Selected card.
+            var pickSlug = function (slug) {
               if (!slug || !data) return;
               data.features.forEach(function (f) { if (f.slug === slug) { selId = f.id; renderSel(); openCard('sel'); } });
+            };
+            d.addEventListener('click', function (e) {
+              var m = e.target && e.target.closest && e.target.closest('.bm-marker-html');
+              var el = m && m.querySelector('[data-mp-f]');
+              if (el) pickSlug(el.getAttribute('data-mp-f'));
+            }, true);
+            new MutationObserver(function () {
+              var el = d.querySelector('.bm-marker-popup [data-mp-f]'), slug = el ? el.getAttribute('data-mp-f') : null;
+              if (slug === lastPop) return;
+              lastPop = slug; pickSlug(slug);
             }).observe(d.body, { childList: true, subtree: true });
           } catch (e) { /* not same-origin (should not happen) */ }
         });
