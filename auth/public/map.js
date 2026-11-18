@@ -484,7 +484,7 @@
       else toast('That one has been removed from the map.');
     });
     // ── search: features, controls, areas and saved places by name and kind; "x z" or "x y z" jumps ──
-    var GROUPS = [['control', 'Controls'], ['gate', 'Gates'], ['area', 'Areas and buildings'], ['building', 'Areas and buildings'], ['tower', 'Towers'], ['saved', 'Your places'], ['place', 'Places']];
+    var GROUPS = [['control', 'Controls'], ['gate', 'Gates'], ['area', 'Areas and buildings'], ['building', 'Areas and buildings'], ['tower', 'Towers'], ['passage', 'Passages'], ['rail', 'Rail lines'], ['saved', 'Your places'], ['place', 'Places'], ['wall', 'Walls'], ['planned', 'Planned'], ['keepclear', 'Keep clear']];
     function groupOf(f) { for (var i = 0; i < GROUPS.length; i++) if (GROUPS[i][0] === f.kind) return GROUPS[i][1]; return 'Other'; }
     function words(s) { return String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean); }
     function near(a, b) {   // one typo allowed in words of 4+ letters
