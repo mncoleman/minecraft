@@ -4,11 +4,11 @@
 //     mc-auth proxies it at /map/3d/ for signed-in players only (GET, allowlisted
 //     paths, private caching, bytes passed through still compressed).
 //   * mc-auth writes BlueMap's per-world map config (maps/<world>.conf) for every
-//     26 world the Map tab has turned on. Secret passages are cut out of the 3D
-//     render with subtract render-masks, so nobody sees them in 3D; owners and
-//     admins see them in the panel's cards and floor plans instead.
+//     26 world the Map tab has turned on. If secrets are made private again
+//     (map.ts SECRETS_PRIVATE), secret boxes are cut out of the 3D render with
+//     subtract render-masks; today the whole world renders.
 //   * Features (map_features, the source of truth) are pushed as BlueMap markers
-//     through ClaudeBuild's /bluemap_markers. Secret features are never pushed.
+//     through ClaudeBuild's /bluemap_markers (secret ones only while secrets are public).
 import type { Hono, Context } from "hono";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { currentSession } from "./session.ts";
@@ -17,7 +17,7 @@ import { SERVERS, isEnabled, type ServerId } from "./servers.ts";
 import { getWorldByMv } from "./worlds.ts";
 import { rcon } from "./rcon.ts";
 import { plugin } from "./buildapi.ts";
-import { listFeatures, secretMasks, setFeatureListener, KINDS, type Feature } from "./map.ts";
+import { listFeatures, secretMasks, setFeatureListener, KINDS, SECRETS_PRIVATE, type Feature } from "./map.ts";
 
 const SRV: ServerId = "26";
 const MV_RE = /^[A-Za-z0-9_-]{1,32}$/;
@@ -36,10 +36,10 @@ function mapConf(mv: string): string {
   const w = getWorldByMv(mv, SRV);
   const fs = listFeatures(SRV, mv, true);
   const anchor = fs.find((f) => f.kind === "area" && f.x !== null) || fs.find((f) => f.x !== null);
-  const masks = secretMasks(SRV, mv).map((m) =>
+  const masks = (SECRETS_PRIVATE ? secretMasks(SRV, mv) : []).map((m) =>
     `  { subtract: true, min-x: ${m.from[0] - 1}, max-x: ${m.to[0] + 1}, min-y: ${m.from[1] - 1}, max-y: ${m.to[1] + 1}, min-z: ${m.from[2] - 1}, max-z: ${m.to[2] + 1} }`);
   return `## Written by mc-auth (auth/src/bluemap.ts). Edits here are overwritten.
-## Secret passages are subtracted from the render so they never show in 3D.
+## Secret passages are subtracted only while the panel keeps secrets private.
 world: "world"
 dimension: ${hstr("minecraft:" + mv.toLowerCase())}
 name: ${hstr(w?.name || mv)}
@@ -106,7 +106,7 @@ function detailHtml(f: Feature, mv: string): string {
   return `<div style="max-width:260px"><div style="font-weight:700">${esc(f.name)}</div><div style="opacity:.75;font-size:.85em">${esc(KINDS[f.kind]?.label || f.kind)}${f.status ? " · " + esc(f.status) : ""}</div>${f.detail ? `<div style="margin-top:4px">${esc(f.detail)}</div>` : ""}${drill}</div>`;
 }
 function markersFor(mv: string) {
-  const fs = listFeatures(SRV, mv, false); // never secret
+  const fs = listFeatures(SRV, mv, !SECRETS_PRIVATE); // secret ones only when secrets are public
   return SETS.map(([id, label, pick], i) => ({
     id, label, sorting: i,
     markers: fs.filter(pick).flatMap((f) => {

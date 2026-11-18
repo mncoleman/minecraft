@@ -322,6 +322,12 @@ function touchArea(srv: ServerId, mv: string, secretChanged = false): void {
 }
 
 // ── who may see / do what ────────────────────────────────────────────────────
+// Secret passages are shown to everyone signed in (owner, 2026-11-17: "allow all
+// areas... there is nothing to hide"). Flip this to true to hide them again from
+// everyone but the world's owner and admins (features, feed, plans, components,
+// MCP list); the masking code paths below all key off it.
+export const SECRETS_PRIVATE = false;
+const seesSecrets = (priv: boolean) => priv || !SECRETS_PRIVATE;
 interface Viewer { sub: string; username: string; admin: boolean; siteOwner: boolean }
 async function viewer(c: Context): Promise<Viewer | null> {
   const s = await currentSession(c);
@@ -596,7 +602,7 @@ function featureOut(f: Feature, masks: Array<{ from: V3; to: V3 }> = []) {
 export async function mapTool(u: User, srv: ServerId, mv: string, a: any): Promise<any> {
   const w = getWorldByMv(mv, srv);
   if (!w || w.status !== "active") throw new Error(`Unknown world '${mv}' on the ${serverLabel(srv)} server.`);
-  const priv = userPrivileged(u, w);
+  const priv = seesSecrets(userPrivileged(u, w));
   const action = String(a?.action ?? "list");
   if (action === "list") {
     let fs = listFeatures(srv, mv, priv);
@@ -744,7 +750,7 @@ export function mountMap(app: Hono): void {
     if (!ww) return c.redirect("/map");
     const { srv, mv, w } = ww;
     const f = getFeature(srv, mv, c.req.param("fid"));
-    const priv = privileged(v, w);
+    const priv = seesSecrets(privileged(v, w));
     if (!f || (f.secret && !priv) || !f.box || !f.floors) return c.redirect(`/map/${srv}/${mv}`);
     const boot = { mode: "area", srv, srvLabel: serverLabel(srv), mv, worldId: w.id, fid: f.id, api: `/map/api/${srv}/${mv}/area/${f.id}`, back: `/map/${srv}/${mv}` };
     const body = `
@@ -774,7 +780,8 @@ export function mountMap(app: Hono): void {
     const ww = worldFromParams(c);
     if (!ww) return jsonErr(c, 404, "Unknown world.");
     const { srv, mv, w } = ww;
-    const priv = privileged(v, w);
+    const isPriv = privileged(v, w);
+    const priv = seesSecrets(isPriv);
     const ms = mapWorld(srv, mv);
     const man = manifest(srv, mv);
     const updates = recentUpdates(srv, mv, priv, 12);
@@ -782,7 +789,7 @@ export function mountMap(app: Hono): void {
     return c.json({
       bluemap: bm,
       world: { id: w.id, name: w.name, mv, server: srv, serverLabel: serverLabel(srv) },
-      privileged: priv,
+      privileged: isPriv,
       map: ms ? {
         status: running === `${srv}/${mv}` ? "rendering" : ms.status, rendered_at: man?.rendered_at ?? ms.rendered_at, requested_at: ms.requested_at,
         bounds: man?.bounds ?? null, min_zoom: man?.min_zoom ?? -2, pending: man?.pending ?? 0, tiles: man?.tiles ?? {},
@@ -821,10 +828,11 @@ export function mountMap(app: Hono): void {
     const ww = worldFromParams(c);
     if (!ww) return jsonErr(c, 404, "Unknown world.");
     const { srv, mv, w } = ww;
-    const priv = privileged(v, w);
+    const isPriv = privileged(v, w);
+    const priv = seesSecrets(isPriv);
     const f = getFeature(srv, mv, c.req.param("fid"));
     if (!f || (f.secret && !priv) || !f.box || !f.floors) return jsonErr(c, 404, "No such area.");
-    const ac = await areaComponents(srv, mv, f, priv, priv && c.req.query("fresh") === "1");
+    const ac = await areaComponents(srv, mv, f, priv, isPriv && c.req.query("fresh") === "1");
     const names = new Map((Array.isArray(f.floors) ? f.floors : []).map((x) => [x.y, x.name]));
     const floorsY: number[] = ac.meta?.floors ?? (Array.isArray(f.floors) ? f.floors.map((x) => x.y) : []);
     const ver = ac.generated_at ?? 0;
@@ -834,7 +842,7 @@ export function mountMap(app: Hono): void {
     const ms = mapWorld(srv, mv);
     return c.json({
       area: { ...featureJson(f), rooms, levers },
-      box: f.box, privileged: priv, canFlip: priv && SERVERS[srv].modern,
+      box: f.box, privileged: isPriv, canFlip: isPriv && SERVERS[srv].modern,
       floors: floorsY.map((y) => ({ y, name: names.get(y) || `Level ${y}`, img: `/map/plans/${srv}/${mv}/${f.id}/${y}.png?v=${ver}${priv ? "f" : "p"}` })),
       comps: ac.comps, live: ac.live, loaded: ac.loaded, generated_at: ac.generated_at,
       status: ac.meta ? "ok" : (ms ? (running === `${srv}/${mv}` ? "rendering" : ms.status) : "new"),
@@ -847,7 +855,7 @@ export function mountMap(app: Hono): void {
     const { srv, mv, w } = ww;
     const m = /^(-?\d{1,3})\.png$/.exec(c.req.param("file"));
     const f = getFeature(srv, mv, c.req.param("fid"));
-    const priv = privileged(v, w);
+    const priv = seesSecrets(privileged(v, w));
     if (!m || !f || (f.secret && !priv)) return c.text("not found", 404);
     const dir = `${outDir(srv, mv)}/areas/${f.id}`;
     const file = Bun.file(`${dir}/floor_${m[1]}${priv ? "" : "_pub"}.png`);
