@@ -216,7 +216,7 @@ function cleanFields(a: FeatureInput, partial: boolean): Record<string, any> {
     if (a.control !== undefined) {
       const c: any = a.control;
       if (c !== null && (typeof c !== "object" || Array.isArray(c))) throw new Error("control must be an object {group, type, reach, on, off, drives, verified}.");
-      const t = (k: string, n = 240) => (c?.[k] === undefined || c?.[k] === null ? undefined : String(c[k]).trim().slice(0, n));
+      const t = (k: string, n = 600) => (c?.[k] === undefined || c?.[k] === null ? undefined : String(c[k]).trim().slice(0, n));
       o.__labels.control = c === null ? undefined : {
         group: t("group", 60), type: t("type", 20), reach: t("reach"), on: t("on"), off: t("off"), drives: t("drives"),
         verified: c?.verified === undefined ? undefined : truthy(c.verified),
