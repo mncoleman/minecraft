@@ -13,11 +13,23 @@ export function setSessionCookie(c: Context, token: string): void {
     secure: !config.devInsecureCookie,
     sameSite: "Lax",
     maxAge: config.sessionTtlDays * 24 * 3600,
+    ...(config.cookieDomain ? { domain: config.cookieDomain } : {}),
   });
 }
 
 export function clearSessionCookie(c: Context): void {
+  // Clear both the host-only cookie (sessions issued before COOKIE_DOMAIN) and
+  // the domain-scoped one.
   deleteCookie(c, config.cookieName, { path: "/" });
+  if (config.cookieDomain) deleteCookie(c, config.cookieName, { path: "/", domain: config.cookieDomain });
+}
+
+/** Re-issue the current session cookie domain-scoped, so sessions created before
+ *  COOKIE_DOMAIN was set also reach the direct game host. No-op without a domain. */
+export function refreshSessionCookieDomain(c: Context): void {
+  if (!config.cookieDomain) return;
+  const tok = getSessionToken(c);
+  if (tok) setSessionCookie(c, tok);
 }
 
 /** Where to send someone right after they sign in: back to a pending OAuth

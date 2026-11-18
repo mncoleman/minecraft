@@ -20,8 +20,16 @@ export const config = {
   cookieName: process.env.COOKIE_NAME ?? "mc_session",
   sessionTtlDays: Number(process.env.SESSION_TTL_DAYS ?? 7),
   devInsecureCookie: process.env.DEV_INSECURE_COOKIE === "true",
+  // Optional Domain for the session cookie (e.g. "minecraft.mncoleman.com") so it
+  // also reaches subdomains like play.minecraft.mncoleman.com, the direct
+  // (non-Cloudflare) game socket. Empty = host-only cookie, as before.
+  cookieDomain: process.env.COOKIE_DOMAIN ?? "",
 
   publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "https://minecraft.mncoleman.com").replace(/\/+$/, ""),
+  // The 26 game socket URL the Play 26 button connects to. Empty = derived from
+  // publicBaseUrl (wss://<host>/26, through Cloudflare). Set to a DNS-only host
+  // (wss://play.minecraft.mncoleman.com/26) so long-lived sockets skip Cloudflare.
+  play26WsUrl: (process.env.PLAY26_WS_URL ?? "").replace(/\/+$/, ""),
 
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN ?? "",

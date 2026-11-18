@@ -86,7 +86,7 @@ function page(username: string, isAdmin: boolean): string {
     ${pageHead({
       eyebrow: "Help",
       title: `${icon("book")} Server Guide`,
-      sub: `Server address, only if the game ever asks: <code>wss://minecraft.mncoleman.com</code> for 1.8, <code>wss://minecraft.mncoleman.com/26</code> for 26.`,
+      sub: `Server address, only if the game ever asks: <code>wss://minecraft.mncoleman.com</code> for 1.8, <code>wss://play.minecraft.mncoleman.com/26</code> for 26.`,
     })}
     <div class="stats">${[["Y", "Play", "/"], ["W", "Worlds", "/worlds"], ["F", "Friends", "/friends"], ["C", "Claude", "/claude"], ["B", "Feedback", "/feedback"], ["P", "Profile", "/profile"]]
       .map(([k, l, h]) => `<a class="tile" href="${h}" style="color:inherit"><div class="k">Shortcut</div><div class="v">${k}</div><div class="f">${l}</div></a>`).join("")}</div>

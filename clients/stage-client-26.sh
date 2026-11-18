@@ -13,10 +13,10 @@
 # relay. The Play 26 button therefore opens 26/?server=<wss>&transport=eaglerx
 # (the client's startup-link format); joinServer is the fallback.
 #
-# Usage: bash clients/stage-client-26.sh /path/to/eaglercraft-26.3-xxxx.html [wss://minecraft.mncoleman.com/26]
+# Usage: bash clients/stage-client-26.sh /path/to/eaglercraft-26.3-xxxx.html [wss://play.minecraft.mncoleman.com/26]
 set -euo pipefail
 SRC="${1:?path to the 26 client .html}"
-WS="${2:-wss://minecraft.mncoleman.com/26}"
+WS="${2:-wss://play.minecraft.mncoleman.com/26}"
 OUT="$(cd "$(dirname "$0")" && pwd)/26"
 mkdir -p "$OUT"
 python3 -I - "$SRC" "$OUT/index.html" "$WS" <<'EOF'

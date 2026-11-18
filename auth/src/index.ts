@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Context, Next } from "hono";
 import { stat } from "node:fs/promises";
 import { config, providersEnabled } from "./config.ts";
-import { currentSession, clearSessionCookie, postLoginPath } from "./session.ts";
+import { currentSession, clearSessionCookie, postLoginPath, refreshSessionCookieDomain } from "./session.ts";
 import { bootstrapAllowlist, getUserById, pendingFriendRequestCount } from "./db.ts";
 import { mountTelegram } from "./providers/telegram.ts";
 import { mountGoogle } from "./providers/google.ts";
@@ -222,11 +222,18 @@ app.get("/js/*", gate, serveClient);
 // joinServer = wss://<host>/26). Only served once the 26 server is configured.
 // The page must be opened as a startup link (?server=<wss>&transport=eaglerx):
 // given only joinServer, the client treats a wss URL with a path as a TCP relay.
-const play26 = () => `/26/?server=${encodeURIComponent(config.publicBaseUrl.replace(/^http/, "ws") + "/26")}&transport=eaglerx`;
-app.get("/26", gate, (c) => c.redirect(play26()));
+// PLAY26_WS_URL points the socket at a DNS-only host so it skips Cloudflare,
+// which was dropping long-lived game sockets; the page itself stays proxied.
+const ws26 = () => config.play26WsUrl || config.publicBaseUrl.replace(/^http/, "ws") + "/26";
+const play26 = () => `/26/?server=${encodeURIComponent(ws26())}&transport=eaglerx`;
+app.get("/26", gate, (c) => { refreshSessionCookieDomain(c); return c.redirect(play26()); });
 app.get("/26/*", gate, async (c) => {
   if (!isEnabled("26")) return c.text("The 26 server isn't set up yet.", 404);
-  if ((c.req.path === "/26/" || c.req.path === "/26/index.html") && !c.req.query("server")) return c.redirect(play26());
+  if (c.req.path === "/26/" || c.req.path === "/26/index.html") {
+    // Old bookmarks carry the previous socket URL: send them to the current one.
+    if (c.req.query("server") !== ws26()) return c.redirect(play26());
+    refreshSessionCookieDomain(c);
+  }
   return serveClient(c);
 });
 
