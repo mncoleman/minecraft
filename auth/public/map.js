@@ -430,6 +430,7 @@
     });
     function statePill(f) {
       var st = f.state || {};
+      if (st.on == null && f.control && f.control.type === 'auto') return '<span class="mp-pill" title="Works by itself">AUTO</span>';
       if (st.on == null) return '<span class="mp-pill" title="Its chunk is not loaded and it is not in the last save">?</span>';
       var word = st.label ? st.label : (st.on ? 'ON' : 'OFF');
       return '<span class="mp-pill' + (st.on ? ' on' : '') + '" title="' + (st.source === 'live' ? 'Live from the server' : 'From the last save') + '">' + esc(word) + (st.source === 'save' ? ' · saved' : '') + '</span>';
