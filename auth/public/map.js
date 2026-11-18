@@ -156,8 +156,8 @@
     var SECRET = '#ff8ad8';
     // [id, label, swatch, default ('on' | 'off' | 'auto'), zoom at which 'auto' shows it]
     var LAYERS = [['gates', 'Gates and walls', '#46d17f', 'on'], ['buildings', 'Buildings and areas', '#ffb454', 'on'], ['places', 'Places', '#5aa9ff', 'on'],
-      ['towers', 'Towers', '#e6e9ee', 'auto', 1], ['controls', 'Controls (levers, buttons)', '#e3b34a', 'auto', 3], ['underground', 'Underground and rails', '#c08cff', 'auto', 2],
-      ['planned', 'Planned', '#ffd166', 'auto', 1], ['keepclear', 'Keep clear', '#ff6b6b', 'auto', 1], ['secret', 'Secret passages', SECRET, 'auto', 2],
+      ['towers', 'Towers', '#e6e9ee', 'auto', 2], ['controls', 'Controls (levers, buttons)', '#e3b34a', 'auto', 4], ['underground', 'Underground and rails', '#c08cff', 'auto', 3],
+      ['planned', 'Planned', '#ffd166', 'auto', 2], ['keepclear', 'Keep clear', '#ff6b6b', 'auto', 2], ['secret', 'Secret passages', SECRET, 'auto', 3],
       ['labels', 'Labels', '#e6e9ee', 'on'], ['grid', 'Grid', '#8b95a3', 'off']];
     var KEY = [['Grass', 'rgb(112,157,49)'], ['Trees', 'rgb(0,109,0)'], ['Cherry trees', 'rgb(213,112,145)'], ['Water', 'rgb(56,56,224)'], ['Sand and birch', 'rgb(217,205,143)'],
       ['Stone and cobble', 'rgb(99,99,99)'], ['Snow', 'rgb(224,224,224)'], ['Dirt and paths', 'rgb(133,96,68)'], ['Deepslate (walls)', 'rgb(88,88,88)'], ['Copper and lamps', 'rgb(190,112,45)']];
