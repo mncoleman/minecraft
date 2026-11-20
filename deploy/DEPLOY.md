@@ -244,6 +244,20 @@ Command dialect differences the panel handles for 26: Multiverse 5
 `execute in minecraft:<world> run` (a bare console tp lands in the lobby's dimension), and extra worlds live under
 `world/dimensions/minecraft/<name>`. Upload/Register stay 1.8-only.
 
+## Guns + vehicles (26 only: QualityArmory, BlockShips, Windfarer)
+
+Jars are pinned in `server26/scripts/fetch-plugins.sh`. QualityArmory's default
+resource pack lives on GitHub releases, which send no CORS headers, so the
+browser client can't download it. Host it on our own origin instead (2026-11-20):
+
+- `clients/26/packs/qualityarmory.zip` on the box = `QualityArmory-21.zip` from
+  `ZombieStriker/QualityArmory-Resourcepack` release `latest`
+  (sha256 `bd499b25…894633`). Served by mc-auth at `/26/packs/…` (login-gated,
+  same origin as the client, so the session cookie rides along).
+- `data/plugins/QualityArmory/config.yml`: `DefaultResourcepackOverride: true`
+  and `DefaultResourcepack: https://minecraft.mncoleman.com/26/packs/qualityarmory.zip`,
+  then `rcon-cli qa reload`. Players get the pack on their next join.
+
 ## BlueMap (3D map behind the Map tab, 26 only)
 
 - Jar: pinned in `server26/scripts/fetch-plugins.sh` (BlueMap 5.29, paper).
