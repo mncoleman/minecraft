@@ -111,6 +111,7 @@ function itemCard(it: Item): string {
   const def = it.kind === "ammo" ? 64 : 1;
   const tags = it.tags.map((t) => `<span class="badge${t === "Full-auto" || t === "Suppressed" ? " badge-owner" : " badge-muted"}">${esc(t)}</span>`).join(" ");
   return `<div class="card pk-item" data-q="${esc((it.label + " " + it.name + " " + it.tags.join(" ") + " " + it.group).toLowerCase())}">
+  <img class="pk-icon" src="/26/packs/icons/${encodeURIComponent(it.name)}.png" alt="" loading="lazy" width="96" height="96" onerror="this.style.visibility='hidden'" />
   <div class="pk-top"><b>${esc(it.label)}</b> <code>${esc(it.name)}</code></div>
   ${tags || it.stat ? `<div class="pk-meta">${tags}${it.stat ? ` <span class="hint">${esc(it.stat)}</span>` : ""}</div>` : ""}
   <form class="pk-give" data-item="${esc(it.name)}">
@@ -122,6 +123,7 @@ function itemCard(it: Item): string {
 
 const PAGE_CSS = `<style>
 .pk-item{display:flex;flex-direction:column;gap:.35rem;padding:.75rem .85rem}
+.pk-icon{display:block;margin:0 auto;width:96px;height:96px;image-rendering:auto}
 .pk-top code{font-size:.72rem;color:var(--dim)}
 .pk-meta{display:flex;gap:.3rem;flex-wrap:wrap;align-items:center}
 .pk-give{display:flex;gap:.4rem;margin-top:auto}
