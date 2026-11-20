@@ -1024,7 +1024,6 @@ export function mountWorlds(app: Hono): void {
     const back = ccBack(w, form);
     const name = String(form.name ?? "").trim().slice(0, 40);
     if (!name) return c.redirect(`${back}?err=` + encodeURIComponent("Give the location a name."));
-    if (listSavedLocations(m.sub, w.server, w.mv_world_name).length >= 50) return c.redirect(`${back}?err=` + encodeURIComponent("You've hit the 50 saved-locations limit for this world."));
     try {
       saveLocation(m.sub, w.server, name, w.mv_world_name, +intArg(form.x), +intArg(form.y), +intArg(form.z));
       return c.redirect(`${back}?msg=` + encodeURIComponent(`Saved "${name}".`));
