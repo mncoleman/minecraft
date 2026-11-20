@@ -16,6 +16,7 @@ import { mountAccount } from "./account.ts";
 import { mountFriends } from "./friends.ts";
 import { mountChangelog } from "./changelog.ts";
 import { mountFeedback } from "./feedback.ts";
+import { mountPacks } from "./packs.ts";
 import { mountMcp } from "./mcp.ts";
 import { mountMap, startMapRenderer, setBlueMapProbe } from "./map.ts";
 import { mountBlueMap, startBlueMapSync, blueMapMaps } from "./bluemap.ts";
@@ -95,6 +96,7 @@ mountAccount(app);
 mountFriends(app);
 mountChangelog(app);
 mountFeedback(app);
+mountPacks(app);
 mountMcp(app);
 mountBlueMap(app); // before mountMap: /map/:srv/:world would otherwise catch /map/3d/<file>
 mountMap(app);

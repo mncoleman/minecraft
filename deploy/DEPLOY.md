@@ -257,6 +257,14 @@ browser client can't download it. Host it on our own origin instead (2026-11-20)
 - `data/plugins/QualityArmory/config.yml`: `DefaultResourcepackOverride: true`
   and `DefaultResourcepack: https://minecraft.mncoleman.com/26/packs/qualityarmory.zip`,
   then `rcon-cli qa reload`. Players get the pack on their next join.
+- Tracers: every `newGuns/*.yml` ships `bullet_particle: REDSTONE`, which no longer
+  exists on 26.x and fails silently (no trail at all). Set `bullet_particle: DUST`
+  with R/G/B `1 / 0.85 / 0.1` (yellow); in `config.yml`, `BulletTrailsSpacing: 0.3`
+  and `forceParticleRendering: true` (revert that one first if full-auto stutters).
+- `enableShop: false`: the shop needs an economy plugin we don't run. Players use
+  `/qa craft` (free in creative) or the panel's **Packs** tab (`auth/src/packs.ts`),
+  which reads these yml files over the `/gamedata26` mount and gives via RCON.
+- Backup of the untouched QA config + guns: `/home/ubuntu/qa-backup-20261120.tgz`.
 
 ## BlueMap (3D map behind the Map tab, 26 only)
 
