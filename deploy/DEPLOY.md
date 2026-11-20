@@ -257,6 +257,10 @@ browser client can't download it. Host it on our own origin instead (2026-11-20)
 - `data/plugins/QualityArmory/config.yml`: `DefaultResourcepackOverride: true`
   and `DefaultResourcepack: https://minecraft.mncoleman.com/26/packs/qualityarmory.zip`,
   then `rcon-cli qa reload`. Players get the pack on their next join.
+- Packs-tab icons: `clients/26/packs/icons/<item>.png` (served at `/26/packs/icons/`).
+  Regenerate after a pack change: unzip the pack and tar `plugins/QualityArmory/{newGuns,ammo,misc,armor}`
+  into two empty dirs, then `python3 -I server26/scripts/render-qa-icons.py <pack_dir> <yml_dir> clients/26/packs/icons`
+  (needs Pillow) and rsync the folder to the box.
 - Tracers: every `newGuns/*.yml` ships `bullet_particle: REDSTONE`, which no longer
   exists on 26.x and fails silently (no trail at all). Set `bullet_particle: DUST`
   with R/G/B `1 / 0.85 / 0.1` (yellow); in `config.yml`, `BulletTrailsSpacing: 0.3`
