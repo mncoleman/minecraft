@@ -66,9 +66,11 @@ services:
       SPAWN_PROTECTION: "0"
       # Browser clients: every chunk is sent over the WebSocket and meshed in
       # WASM, so view distance costs the browser. It was 6 (13x13 chunks) but
-      # looked shorter than 1.8's 8; Matthew chose 10 (21x21) on 2026-11-17.
-      # Simulation 4 keeps ticking cheap.
-      VIEW_DISTANCE: "10"
+      # looked shorter than 1.8's 8; Matthew chose 10 (21x21) on 2026-11-17,
+      # then 16 (33x33) on 2026-11-19 (each player sets their own render
+      # distance in-game; this is the server's cap). Simulation 4 keeps
+      # ticking cheap.
+      VIEW_DISTANCE: "16"
       SIMULATION_DISTANCE: "4"
       SYNC_CHUNK_WRITES: "false"
       TZ: "UTC"
