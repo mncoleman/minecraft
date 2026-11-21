@@ -73,6 +73,13 @@ services:
       VIEW_DISTANCE: "16"
       SIMULATION_DISTANCE: "4"
       SYNC_CHUNK_WRITES: "false"
+      # QualityArmory gun pack, sent by the server WITH its SHA-1 so the client
+      # caches it (QA itself sends no hash, so it re-downloaded every join; QA's
+      # own sending is off: useDefaultResourcepack: false). Update the SHA-1 if
+      # clients/26/packs/qualityarmory.zip changes.
+      RESOURCE_PACK: "https://minecraft.mncoleman.com/26/packs/qualityarmory.zip"
+      RESOURCE_PACK_SHA1: "3a2d248860719674412cf60ae0f2a30de60ddd57"
+      RESOURCE_PACK_ENFORCE: "FALSE"
       TZ: "UTC"
 
     volumes:

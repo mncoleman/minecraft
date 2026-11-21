@@ -257,6 +257,9 @@ browser client can't download it. Host it on our own origin instead (2026-11-20)
 - `data/plugins/QualityArmory/config.yml`: `DefaultResourcepackOverride: true`
   and `DefaultResourcepack: https://minecraft.mncoleman.com/26/packs/qualityarmory.zip`,
   then `rcon-cli qa reload`. Players get the pack on their next join.
+- Since 2026-11-20 the pack is sent by the server (`RESOURCE_PACK` + `RESOURCE_PACK_SHA1` in
+  `server26/docker-compose.yml`), not QA (`useDefaultResourcepack: false`): QA sends no hash, so
+  the client re-downloaded it every join. Changing the zip means updating the SHA-1 + `docker compose up -d`.
 - Packs-tab icons: `clients/26/packs/icons/<item>.png` (served at `/26/packs/icons/`).
   Regenerate after a pack change: unzip the pack and tar `plugins/QualityArmory/{newGuns,ammo,misc,armor}`
   into two empty dirs, then `python3 -I server26/scripts/render-qa-icons.py <pack_dir> <yml_dir> clients/26/packs/icons`
