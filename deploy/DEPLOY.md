@@ -260,6 +260,7 @@ browser client can't download it. Host it on our own origin instead (2026-11-20)
 - Since 2026-11-20 the pack is sent by the server (`RESOURCE_PACK` + `RESOURCE_PACK_SHA1` in
   `server26/docker-compose.yml`), not QA (`useDefaultResourcepack: false`): QA sends no hash, so
   the client re-downloaded it every join. Changing the zip means updating the SHA-1 + `docker compose up -d`.
+- Performance (2026-11-21): 26 container 3 CPUs / 6 GB, heap 4 GB (`server26/docker-compose.yml`); `config/paper-global.yml` `chunk-loading-basic.player-max-chunk-send-rate: 150.0` (was 75; backup `paper-global.yml.bak-20261121`). Baseline before: 20 TPS, ~7 ms/tick.
 - Player permissions (QA nodes default to op): `rcon-cli "lp group default permission set qualityarmory.default true"` and `... qualityarmory.craftgun true` (shoot, craft, `/qa craft`). Set 2026-11-21.
 - Packs-tab icons: `clients/26/packs/icons/<item>.png` (served at `/26/packs/icons/`).
   Regenerate after a pack change: unzip the pack and tar `plugins/QualityArmory/{newGuns,ammo,misc,armor}`

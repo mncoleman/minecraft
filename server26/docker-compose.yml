@@ -33,9 +33,11 @@ services:
       - .env
 
     # --- HARD resource caps (crash isolation) -------------------------------
-    mem_limit: 5g
-    memswap_limit: 5g
-    cpus: 2.0
+    # 2026-11-21: 2 -> 3 cores, 5 -> 6 GB (heap 3 -> 4 GB) for faster chunk load/gen;
+    # the box has 4 cores and ~17 GB free, and ticks were only ~7 ms.
+    mem_limit: 6g
+    memswap_limit: 6g
+    cpus: 3.0
     # ------------------------------------------------------------------------
 
     ports:
@@ -49,7 +51,7 @@ services:
       UID: "1001"
       GID: "1001"
       ENABLE_RCON: "true"
-      MEMORY: "3G"
+      MEMORY: "4G"
       USE_AIKAR_FLAGS: "true"
       # Browser clients in a background tab get throttled to one wake-up a
       # minute (Chrome, after 5 min hidden), so they answer keep-alives late
