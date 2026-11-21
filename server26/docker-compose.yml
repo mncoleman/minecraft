@@ -79,7 +79,8 @@ services:
       # clients/26/packs/qualityarmory.zip changes.
       RESOURCE_PACK: "https://minecraft.mncoleman.com/26/packs/qualityarmory.zip"
       RESOURCE_PACK_SHA1: "3a2d248860719674412cf60ae0f2a30de60ddd57"
-      RESOURCE_PACK_ENFORCE: "FALSE"
+      RESOURCE_PACK_ENFORCE: "TRUE"   # required (2026-11-21): otherwise others see guns as crossbows
+      RESOURCE_PACK_PROMPT: '{"text":"This server needs its gun pack so weapons look right. Click Yes to download it (once)."}'
       TZ: "UTC"
 
     volumes:
